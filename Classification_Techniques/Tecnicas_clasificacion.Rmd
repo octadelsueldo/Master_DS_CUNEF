@@ -1,0 +1,556 @@
+---
+title: "Trabajo Final - Técnicas de Clasificación"
+author: "Hugo César Octavio del Sueldo"
+date: "11/13/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Objetivo del Trabajo
+
+Realizar  un  análisis  de  clasificación  mediante  las  técnicas  vistas.  Se  tiene  que  identificar  una  variable dependiente (binaria y/o multinomial) y un conjunto de variables explicativas (al menos dos variables explicativas)  
+
+# Tema y descripcion
+
+Realizaremos un Modelo “Logit-CAPM” explicando los rendimientos binarios (positivos o negativos) del Banco Santander, a partir del índice bursátil IBEX y de los rendimientos de MAPFRE como otro activo relacionado (variables   explicativas). Haremos uso de la base de datos Cotizaciones2020.txt
+
+- Variable  dependiente:  RSANT  - discretizando los rendimientos en cuatro (cuartiles) o cinco intervalos.
+
+
+- Variables explicativas: Rendimiento IBEX35, rendimiento REP, otros indicadores de frecuencia diaria
+
+
+- Comparar la RL con análisis Discriminante LDA y QDA. Se pueden usar otros métodos
+
+Fuente: Yahoo finance
+
+## Paso 1
+
+Construir  una  variable  discretizada en dos  a  partir  de  los  datos  de  RSANT  donde  para  rendimientos positivos vale 1 y para rendimientos negativos vale 0.
+
+```{r carga_datos}
+library(quantmod)
+library(DAAG)
+library(e1071)
+# Input
+
+f.inicio <- '2019-11-01'
+f.final <- '2020-11-01'
+tickers <- c('SAN.MC','IBEX','BBVA.MC','REP.MC','ITX.MC','TL5.MC')
+n <- length(tickers)
+n
+
+for (j in 1:n) {
+  getSymbols(tickers[n], from=f.inicio, to=f.final)
+  n = n-1
+}
+
+# Consolidacion de los valores
+
+valores <- cbind(SAN.MC$SAN.MC.Adjusted, IBEX$IBEX.Adjusted, BBVA.MC$BBVA.MC.Adjusted, REP.MC$REP.MC.Adjusted, ITX.MC$ITX.MC.Adjusted, TL5.MC$TL5.MC.Adjusted)
+head(valores)
+
+```
+
+```{r}
+library(dplyr)
+library(imputeTS)
+
+valores <- na_mean(valores)
+
+```
+
+
+Plot de los valores
+```{r}
+# Evolucion de los valores
+
+n <- length(tickers)
+n
+for (j in 1:n) {
+  barChart(valores [ , n], theme = "black", name = colnames(valores)[n])
+  n = n-1
+}
+```
+
+```{r}
+# Rendimiento de los valores
+
+rendimiento <- diff(log(valores))[-1]
+head(rendimiento)
+
+# Fluctuacion de los rendimientos diarios
+
+n <- length(tickers)
+n
+for (j in 1:n) {
+  barChart(rendimiento [ , n], theme = "white", name = colnames(rendimiento)[n])
+  n = n-1    #con la funcion for no se ejecuta el comando PLOT
+}
+```
+
+```{r}
+library(PerformanceAnalytics)
+skewness(valores)
+kurtosis(valores)
+```
+
+
+
+```{r}
+par(mfrow= c(2,3))
+
+n <- length(tickers)
+n
+for (j in 1:n) {
+  hist(rendimiento [ , n], main = colnames(rendimiento)[n])
+  lines(density(rendimiento [ , n]), col = 'green')
+  n = n-1
+}
+par(mfrow= c(1,1))
+```
+
+Convertimos ahora la Variable RSAN en cuatro categorias segun sus rendimientos del periodo
+
+
+```{r san_categorias}
+RSANBIN <- cut(rendimiento[,1], breaks=c(-Inf,0,Inf), 
+                 labels=c("low", "high"))
+
+RSANBIN <- ifelse(RSANBIN == "low", 0, 1)
+
+table(RSANBIN)
+
+datos1 <- cbind(RSANBIN, rendimiento)
+datos1 <- as.data.frame(datos1)
+
+
+```
+
+
+```{r}
+library(rsample)
+
+set.seed(16112020)
+datos_split <- initial_split(datos1, prop = .7, strata = "RSANBIN")
+
+datos_training = training(datos_split)
+
+datos_test = testing(datos_split)
+
+datos_training$RSANBIN <- ifelse(datos_training$RSANBIN == 1, 1, 0)
+
+datos_training <- datos_training %>% mutate(RSANBIN = factor(RSANBIN, levels = c(0,1)))
+```
+
+## Paso 2: 
+Estimamos  un  modelo  de  regresion  logistica,  para  explicar  RSANBIN  a  partir  de  RIBEX35 y RREP. Obtener medidas de bondad de ajuste. .
+
+
+```{r}
+model <- glm(RSANBIN ~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, data=datos_training, family = binomial(link = logit)) 
+summary(model)
+```
+
+Para el modelo de regresion logistica podemos observar que la rentabilidad del BBVA es muy significativas para explicar el rendimiento del santander. Curiosamente, el indice IBEX no tiene significancia para el modelo asi como  Itx (Industria de diseño y textil). Por ultimo, TL5 tiene poca significancia.
+
+2. Bondad de ajuste LR test: contraste GLOBAL
+
+```{r}
+#ajustamos un modelo donde el model tiene unicamente el termino independiente. Lo que se hace es poner menos 1 al final.
+model_0 <- glm(RSANBIN ~ 1, data=datos_training, family = binomial(link = logit))
+model_1 <- glm(RSANBIN ~ BBVA.MC.Adjusted, data=datos_training, family = binomial(link = logit))
+```
+
+Comparamos los modelos con un anova
+
+```{r}
+anova(model_0, model_1, model,test="Chisq")
+```
+
+Aqui podemos ver que el modelo solo con BBVA explica mejor que el modelo con todas las  variables.
+
+- Pseudo R2 de McFadden.
+```{r}
+library("pscl") # paquete que permite calcularlo
+pR2(model_1) #0.259 el indice de McFadden. El R2 para la regresion logistica
+```
+```{r}
+# Matriz de confusion
+
+fit.pred <- ifelse(model_1$fitted.values>0.5,1,0) #si el valor ajustado >0.5 entonces la clasificacion sera 1
+tmodel<-table(fit.pred, datos_training$RSANBIN) #los predichos frente a los observados
+tmodel
+(tmodel[1,1]+tmodel[2,2])/sum(tmodel) #medida de calidad del modelo. 86.6%
+```
+
+
+#### Curva ROC
+
+```{r curvaROC}
+library(pROC)
+# Elementos necesarios para ROC
+prob=predict(model_1,type=c("response"))
+datos_training$prob=prob
+
+#library(pROC)
+g <- roc(RSANBIN ~ prob, data = datos_training)
+plot(g) #esto es lo del ROC
+```
+
+
+Vamos a realizar un analisis discriminante lineal y cuadratico para comparar
+
+### Analisis discriminante lineal
+
+```{r lda}
+library(MASS)
+sant.lda <- lda(RSANBIN ~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, data=datos_training)
+sant.lda
+
+plot(sant.lda, pch=16)
+
+```
+
+```{r}
+#Probabilidades a priori
+sant.lda$prior
+#Probabilidades a posteriori
+predict(sant.lda)$posterior
+
+#library(rsample)
+
+# Matriz de confusion
+predicted.lda <- predict(sant.lda, data = datos_training)
+
+tabla1 <- table(datos_training$RSANBIN, predicted.lda$class, dnn = c("Grupo real","Grupo Pronosticado"))
+
+
+# Precision del modelo
+sum(diag(tabla1))/sum(tabla1) # Precision del 75.9%
+
+```
+
+```{r partiplot_lda}
+
+# Graficos de Particion 
+library(klaR)
+
+partimat(datos_training[,c(3,4,5,6,7)],datos_training$RSANBIN,data=datos_training,method="lda",main="Partition Plots") 
+
+
+```
+
+
+
+
+### Analisis discriminante cuadratico
+```{r}
+library(MASS)
+sant.qda <- qda(RSANBIN ~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, data=datos_training)
+sant.qda
+
+
+#ESTO DE ABAJO NO ME FUNCIONA XQ NO CARGA EL PAQUETE EN MAC
+# Comprobar la hipotesis para el QDA
+#library(biotools)
+#boxM(datos1[,c(3,4,5,6,7)],RSANBIN)
+
+
+```
+
+
+```{r}
+#Probabilidades a priori
+sant.qda$prior
+#Probabilidades a posteriori
+predict(sant.qda)$posterior
+
+# Matriz de confusion
+predicted.qda <- predict(sant.qda, data = datos_training)
+tabla2 <- table(datos_training$RSANBIN, predicted.qda$class, dnn = c("Grupo real","Grupo Pronosticado"))
+
+
+# Precision del modelo
+sum(diag(tabla2))/sum(tabla2) # 79%
+
+
+```
+
+
+
+```{r}
+# Graficos de Particion 
+library(klaR)
+partimat(datos_training[,c(3,4,5,6,7)],datos_training$RSANBIN,data=datos_training,method="qda",main="Partition Plots")
+```
+
+
+# Arboles de Decision
+
+```{r}
+# Cargar el paquete de clasificacion rpart
+
+library(rpart)    
+library(rpart.plot)
+
+```
+
+
+```{r}
+# Crecimiento del arbol con rpart
+modeloarbol <- rpart(RSANBIN ~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, method = "class", data =datos_training)
+
+# Informacion y grafico
+print(modeloarbol)                         
+# La opcion extra=2: es la probabilidad de datos por clase
+rpart.plot(modeloarbol,extra=2)  
+```
+
+
+```{r}
+# Estadisticos de resultados y 
+# Errores del arbol en funcion del numero de nodos
+
+printcp(modeloarbol)             
+plotcp(modeloarbol)            
+
+# Prediccion y validacion 
+
+prediccion <- predict(modeloarbol, newdata = datos_training, type = "class")
+
+# Matriz de confusion
+t1<-table(prediccion, datos_training$RSANBIN)
+t1
+
+# Porcentaje de aciertos
+sum(diag(t1))/sum(t1) #89% de acierto
+```
+
+
+```{r}
+# Podado del arbol
+
+# Forma automatica
+parbolrpart<- prune(modeloarbol, cp= modeloarbol$cptable[which.min(modeloarbol$cptable[,"xerror"]),"CP"])
+
+# Grafico del arbol podado
+
+rpart.plot(parbolrpart,extra=2) 
+print(parbolrpart)
+
+printcp(parbolrpart) #factor de complejidad es el primer dato que nos sale en la tabla
+plotcp(parbolrpart)    
+```
+```{r}
+# Prediccion 
+# Validamos la capacidad de prediccion del arbol 
+
+
+predrpart <- predict(parbolrpart, newdata = datos_training, type = "class")
+
+# Matriz de confusi0n
+t1 <- table(predrpart, datos_training$RSANBIN)
+
+# Porcentaje de aciertos
+sum(diag(t1))/sum(t1) #88% es la prediccion con el arbol podado. Es decir, peor que con el modelo sin podar
+```
+
+
+## Modelo kNN
+
+
+```{r kNN}
+library(class)
+# Muestra de entrenamiento
+set.seed(2021)
+# Indices 280 train y 120 test
+train<-sample(seq(length(datos1$RSANBIN)),length(datos1$RSANBIN)*0.70,replace=FALSE)
+
+x<-datos1[,c(3:7)] #estamos eligiendo el indice de las variables explicativas
+y<-datos1[,1] #variable dependiente o a predecir
+
+# Ajuste con muestra de entrenamiento
+knn1 <- knn(train=x[train,], test= x[-train,], cl=y[train], k=20)
+
+t1<-table(knn1,y[-train]) #hacemos la tabla para ver como nos dan los resultados
+t1
+sum(t1)
+sum(diag(t1))/sum(t1) # 0.81 porcentaje de acierto
+mean(knn1==y[-train]) 
+```
+
+```{r}
+# Validacion cruzada con la muestra de entrenamiento 
+
+knn.cross <- knn.cv(train=x[train,],y[train],k=20,prob=TRUE)
+t2<-table(knn.cross,y[train])
+t2
+sum(diag(t2))/sum(t2) # 0.87 de acierto con validacion cruzada
+```
+
+```{r}
+# Con toda la muestra
+
+knn.cross2 <- knn.cv(x,y,k=20,prob=TRUE)
+t3<-table(knn.cross2,y)
+t3
+sum(diag(t3))/sum(t3) # 0.85 de acierto con toda la muestra
+```
+
+
+```{r}
+# Optimizacion de k
+
+k <- 1:100
+resultado <- data.frame(k, Precision = 0)
+for(n in k){
+  datos_output_kNN <- knn(train = x[train,], 
+                          test = x[-train,],
+                          cl = y[train], 
+                          k = n)
+  
+  resultado$Precision[n] <- mean(datos_output_kNN == y[-train])
+}
+
+library(ggplot2)
+library(dplyr)
+resultado %>% 
+  ggplot() +
+  aes(k, Precision) +
+  geom_line()
+
+# Que k optimo utilizamos?
+which.max(resultado$Precision) #3 k es el optimo. Utilizar siempre el mas pequeno.
+which.max(resultado[,2]) #otra forma.
+```
+
+
+```{r}
+# Validacion cruzada con la muestra de entrenamiento 
+
+knn.cross <- knn.cv(train=x[train,],y[train],k=3,prob=TRUE)
+t2<-table(knn.cross,y[train])
+t2
+sum(diag(t2))/sum(t2) # 0.859 de acierto con validacion cruzada con el k optimo
+```
+
+## SVM probando diversos kernel.
+
+```{r}
+
+
+datos_training$RSANBIN <- as.factor(datos_training$RSANBIN)
+# Se estima un modelo svm radial con todos los datos con kernel radial
+
+svm1 <- svm(RSANBIN~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, data=datos_training, kernel="radial") 
+
+print(svm1) #nos da parametros de clasificacion, tiene que ver con variables categoricocas, Number of support vector son los puntos que me definen la frontera
+
+summary(svm1) #clases, niveles, etc
+t1<-table(datos_training$RSANBIN,svm1$fitted) #creamos la tabla de default con el ajustado
+t1
+sum(diag(t1))/sum(t1) # 0.92 es el acierto con el SVM
+
+```
+
+
+```{r}
+# Se estima un modelo svm radial con todos los datos con kernel radial
+
+svm1 <- svm(RSANBIN~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, data=datos_training, kernel="linear") 
+
+print(svm1) #nos da parametros de clasificacion, tiene que ver con variables categoricocas, Number of support vector son los puntos que me definen la frontera
+
+summary(svm1) #clases, niveles, etc
+t1<-table(datos_training$RSANBIN,svm1$fitted) #creamos la tabla de default con el ajustado
+t1
+sum(diag(t1))/sum(t1) # 0.87 es el acierto con el SVM Linear. Es decir, no cambian los resultados
+```
+
+
+(iii)  Estimar nuevos modelos mediante tuneado.
+
+```{r}
+# Mejorando mediante tune.svm sobre el total de datos
+
+#tuneamos los datos con algunas modificaciones en el setup. Variamos 10 elevado a la -3 a 0 que es -3-2-4 en valores. Coste seran 3 valores. Maneras de ahorrarnos la idea de poner un vector
+tuned<-tune.svm(RSANBIN~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, 
+                data=datos_training, 
+                kernel="radial", 
+                gamma=10^(-3:0), 
+                cost=10^(0:2))
+
+# tarda un momento
+summary(tuned)
+
+# best parameters:
+# gamma 0.01
+# cost 100
+
+svmbest <- svm(RSANBIN~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, data=datos_training, kernel="radial", gamma=0.01, cost=100)
+print(svmbest)
+summary(svmbest)
+t3<-table(datos_training$RSANBIN,svmbest$fitted)
+t3
+sum(diag(t3))/sum(t3) # 0.916 es el acierto que obtenemos de la matriz de confusion. Es decir que con el metodo tuneado no se mejoran los resultados.
+
+
+```
+
+
+
+
+Habiendo realizado las predicciones sobre las muestras de training, observamos que la tecnica que mejor clasifica los rendimientos es el SVM por lo tanto, pasaremos a realizar la clasificacion sobre la muestra de test con esta tecnicas para comprobar su % de acierto.
+
+```{r}
+
+datos_test$RSANBIN <- as.factor(datos_test$RSANBIN)
+
+svm1 <- svm(RSANBIN~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, data=datos_test, kernel="radial") 
+
+print(svm1) #nos da parametros de clasificacion, tiene que ver con variables categoricocas, Number of support vector son los puntos que me definen la frontera
+
+summary(svm1) #clases, niveles, etc
+t1<-table(datos_test$RSANBIN,svm1$fitted) #creamos la tabla de default con el ajustado
+t1
+sum(diag(t1))/sum(t1) # 0.80 es el acierto con el SVM
+```
+
+Con el arbol de decision
+
+```{r}
+# Prediccion y validacion 
+
+modeloarbol.test <- rpart(RSANBIN ~ IBEX.Adjusted + BBVA.MC.Adjusted + REP.MC.Adjusted + ITX.MC.Adjusted + TL5.MC.Adjusted, method = "class", data = datos_test)
+
+prediccion.test <- predict(modeloarbol.test, newdata = datos_test, type = "class")
+
+# Matriz de confusion
+t1<-table(prediccion.test, datos_test$RSANBIN)
+t1
+
+# Porcentaje de aciertos
+sum(diag(t1))/sum(t1) #84% de acierto
+```
+
+
+Con regresion logistica
+
+```{r}
+# Matriz de confusion
+
+model_1.test <- glm(RSANBIN ~ BBVA.MC.Adjusted, data=datos_test, family = binomial(link = logit))
+
+fit.pred <- ifelse(model_1.test$fitted.values>0.5,1,0) #si el valor ajustado >0.5 entonces la clasificacion sera 1
+tmodel.test<-table(fit.pred, datos_test$RSANBIN) #los predichos frente a los observados
+tmodel.test
+(tmodel.test[1,1]+tmodel.test[2,2])/sum(tmodel.test) #medida de calidad del modelo. 86.6%
+```
+
+

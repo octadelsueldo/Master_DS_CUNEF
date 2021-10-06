@@ -1,0 +1,293 @@
+---
+title: "Trabajo de Clasificacion"
+author: "Hugo César Octavio del Sueldo"
+date: "11/9/2020"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Semana 1
+
+## Practica 4 de regresion logistica
+
+Cargamos la libreria
+```{r}
+library(ISLR)
+library(pscl)
+library(pROC)
+data("Wage")
+head(Wage)
+```
+
+
+### 1. Modelo de regresion logistica para explicar la variable health
+
+```{r}
+model <- glm(health ~ age + race + education + logwage, data=Wage, family = binomial(link = logit))
+summary(model)
+```
+
+Vemos que la variable age, el college grad, advanced degree y logwage son significativas al ser su pvalor menor a 0.05
+
+### 2. Bondad de ajuste LR test: contraste GLOBAL
+
+```{r}
+#ajustamos un modelo donde el model tiene unicamente el termino independiente. Lo que se hace es poner menos 1 al final.
+model_0 <- glm(health ~ 1, data=Wage, family = binomial(link = logit))
+```
+
+Comparamos los modelos con un anova
+```{r}
+anova(model_0,model,test="Chisq") #Al poner chisq ya entiende que estamos haciendo un cociente de verosimilitudes. El p valor del chiq es en el que nos debemos fijar para rechazar la hipotesis nula.
+```
+El modelo 2 es decir el que tiene todas las variables explicativas, explica mejor que el modelo 1
+
+#### Pseudo R2 de McFadden
+
+```{r}
+#library("pscl") paquete que permite calcularlo
+pR2(model)  # McFadden = 0.00592499
+```
+
+### 3). Matriz de confusion
+
+```{r}
+fit.pred <- ifelse(model$fitted.values>0.5,1,0) #si el valor ajustado >0.5 entonces la clasificacion sera 1
+tmodel<-table(fit.pred,Wage$health) #los predichos frente a los observados
+tmodel
+(tmodel[1,1]+tmodel[2,2])/sum(tmodel) #medida de calidad del modelo
+```
+
+#### Curva ROC
+
+```{r}
+model <- glm(health ~ age + race + education + logwage, data=Wage, family = binomial)
+summary(model)
+
+# Elementos necesarios para ROC
+prob=predict(model,type=c("response"))
+Wage$prob=prob
+
+#library(pROC)
+g <- roc(health ~ prob, data = Wage)
+plot(g) #esto es lo del ROC
+
+```
+
+## Regresion logistica practica 5
+
+```{r}
+library(wooldridge)
+data("happiness")
+head(happiness)
+names(happiness)
+help(happiness)
+str(happiness)
+```
+
+
+### 1. Modelo de regresion lineal para la variable vhappy
+
+```{r}
+happy <- lm(vhappy ~ educ + income + female + unem10, data = happiness)
+summary(happy)
+```
+
+Segun la regresion lineal las variables desempleado (unem10), educ, incomes between $6000 and $7999 son significativas
+
+### 2. Modelo con la regresion logistica y selecion por medio del stepAIC
+
+```{r}
+happylog <- glm(vhappy ~ educ + income + female + unem10, data = happiness, family = binomial(link = logit))
+summary(happylog)
+```
+
+segun la regresion logistica no es tan significativa la educacion para explicar la variable vhappy y le pone un punto mas de significancia a la variable income $6000 to $6999
+
+### Regresion por pasos
+
+```{r}
+library(MASS)
+
+regresionconregrlineal <- stepAIC(happy) #step AIC con la regresion lineal
+```
+
+El mejor modelo segun stepAIC con regresion lineal es el siguiente
+Step:  AIC=-15771.19
+vhappy ~ educ + income + unem10
+
+```{r}
+regresionxpasos <- stepAIC(happylog) #con el stepAIC definimos la seleccion del modelo
+summary(regresionxpasos) 
+```
+
+El modelo que mejor segun el stepAIC con regresion logistica que define la variable dependiente es el siguiente
+Step:  AIC=11934.78
+vhappy ~ educ + income + unem10
+
+Por lo tanto, concluimos que la regresion lineal explica mejor la variable happy al tener un AIC menor.
+
+### 3. Predecir con el modelo de regresion lineal y con la regresion logistica
+
+```{r}
+#Prediccion con regresion lineal
+# Se define este objeto para predecir
+pred.var <- data.frame(educ=18, income = "$25000 or more", female = 1, unem10 = 0)
+
+predict(happy, newdata=pred.var)
+```
+
+Segun la regresion lineal simple una mujer con 18 anios de educacion, trabajando con ingresos mayores a $25000 tiene 38% de probabilidad de ser feliz
+
+```{r}
+# Prediccion Regresion LOGISTICA
+
+predlog <- predict(happylog, newdata=pred.var, type="response")
+predlog
+```
+
+Segun la regresion logistica simple una mujer con 18 anios de educacion, trabajando con ingresos mayores a $25000 tiene 39% de probabilidad de ser feliz
+
+# Semana 2
+
+## Ejercicio 4 de Analisis discriminante
+
+El fichero de datos spam7. Los datos consisten en 4601 elementos de correo electronico,de los cuales 1813 elementos se identificaron como
+spam. El fichero contiene las siguientes variables:
+
+crl.tot total length of words in capitals
+
+dollar number of occurrences of the $ symbol
+
+bang number of occurrences of the ! symbol
+
+money number of occurrences of the word ”money”
+
+n000 number of occurrences of the string ”000”
+
+make number of occurrences of the word ”make”
+
+yesno outcome variable, a factor with levels n not spam, y spam
+
+### 1.  Realizar un analisis descriptivo de las variables explicativas
+
+
+
+```{r}
+library(DAAG)
+data("spam7")
+library(tidyverse)
+library(skimr)
+library(corrplot)
+library(PerformanceAnalytics)
+skim(spam7)
+```
+
+```{r}
+# Correlations
+corrplot(cor(spam7 %>% 
+               select_at(vars(-yesno)), 
+             use = "complete.obs"), 
+         method = "circle",type = "upper")
+
+
+# Other Correlations
+
+chart.Correlation(spam7 %>% 
+                    select_at(vars(-yesno)),
+                  histogram=TRUE, pch=19)
+
+
+```
+
+### 2. Comparar los modelos LR, LDA y QDA mediante la matriz de confusion. Realizar los graficos de particion
+
+#### Modelos Regresion Logistica
+
+```{r}
+library(magrittr)
+str(spam7) #me fijo como quedan las variables para chequear
+
+head(spam7$yesno)
+
+model1 <- glm(yesno ~ ., data=spam7, family = binomial(link = logit))
+summary(model1)
+```
+Segun la regresion logistica las variables significas son crl.tot, dollar, bang, money y n000. Por lo tanto deja afuera el make.
+
+
+#### LDA
+
+```{r}
+library(MASS)
+
+# LDA analisis discriminante lineal
+# Elegimos a  priori el tamanho de cada grupo
+ldamod <- lda(yesno ~ ., data = spam7)
+ldamod
+
+# Prediccion respuesta
+ldaResult <- predict(ldamod, newdata = spam7) 
+# Matriz de confusion
+tldamod<-table(ldaResult$class, spam7$yesno)
+tldamod
+# Precision
+sum(diag(tldamod))/sum(tldamod) # acierto  76%
+
+
+```
+
+Partition Plots
+```{r}
+library(klaR)
+spam7$yesno <- as.factor(spam7$yesno)
+partimat(spam7[,c(1,2,3,4,5,6)], spam7$yesno, data = spam7, method = "lda", main = "Partition Plots") 
+```
+
+
+#### Contraste de Homogeneidad de varianza
+
+```{r}
+
+# LO SIGUIENTE NO ESTA CONTROLADO PORQUE MI SISTEMA OPERATIVO MACOS NO ME PERMITE CARGAR LA LIBRERIA
+#library(biotools)
+#boxM(data=spam7[,c(1,2,3,4,5,6)], grouping=spam7[,7])
+```
+
+#### QDA analisis discriminante cuadratico
+
+```{r}
+# Elegimos a  priori el tamanho de cada grupo
+qdamod <- qda(yesno ~ ., data = spam7) 
+qdamod
+# Prediccion respuesta
+qdaResult <- predict(qdamod, newdata = spam7) 
+# Matriz de confusion
+tqdamod<-table(qdaResult$class, spam7$yesno) 
+tqdamod
+sum(diag(tqdamod))/sum(tqdamod) # acierto (76 %)
+```
+
+
+
+Partition Plots
+
+```{r}
+library(klaR)
+spam7$yesno <-as.factor(spam7$yesno)
+partimat(spam7[,c(1,2,3,4,5,6)], spam7$yesno, data=spam7, method="qda",main="Partition Plots")
+```
+
+
+
+
+
+
+
+
