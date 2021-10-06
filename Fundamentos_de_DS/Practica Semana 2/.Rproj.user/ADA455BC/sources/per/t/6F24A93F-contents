@@ -1,0 +1,33 @@
+#----------------------------------------------------------------------
+# Master DSF
+# Pr?ctica Regresi?n No Param?trica
+# Pr?ctica 1
+#----------------------------------------------------------------------
+
+rm(list=ls())
+
+data(cars)
+attach(cars)
+help(cars)
+
+# Variables
+
+plot(speed, dist)
+
+# Regresi?n no param?trica kernel normal y varios bandwidth
+
+for (b in c(2,3,5)) {
+  lines(ksmooth(speed, dist, "normal", bandwidth = b),col=b)  
+}
+
+# Regresi?n no param?trica kernel rectangular y varios bandwidth
+
+plot(speed, dist)
+for (b in c(2,3,5)) {
+  lines(ksmooth(speed, dist, "box", bandwidth = b),col=b)  
+}
+
+
+
+
+      
