@@ -1,0 +1,351 @@
+---
+title: "CP_01_v02_NBA"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+    toc_depth: 2
+    
+# TODO Forecast final model
+# TODO Read Data
+# TODO Columns Name
+# TODO Summarise Data
+# TODO Data Wrangling
+# TODO Log - BoxCox
+# TODO XY plot
+# TODO FI
+# TODO Train + Test sample
+# TODO Select best regession Model
+# TODO Estimated final model
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<!--AQUI EL ESTILO CSS-->
+
+```{css, echo = FALSE}
+```
+
+<!--FIN DEL ESTILO CSS-->
+
+
+[//]: Comentario
+
+
+## Reference
+
+https://bradleyboehmke.github.io/HOML/engineering.html#proper-implementation
+
+# libreria "todor" sirve para saber lo que falta por hacer. Si hacemos click sobre el titulo se va directo a donde esta. Revisar las palabras claves de la libreria.
+
+#libreria page down permite generarl pdf paginales desde Rmd
+
+<!-- es un comentario -->
+
+
+[//]: comentatio
+
+# Libraries and functions
+
+```{r Libraries and functions, message=FALSE, warning=FALSE}
+library(here) # Comentar. Sirve para referenciar un fichero no haga poner el path
+library(tidyverse)
+library(janitor) # Clean names. Sirve para seguir la misma sintaxis de nombre
+library(skimr) # Beautiful Summarize
+library(magrittr) # Pipe operators.
+library(corrplot) # Correlations
+library(ggcorrplot)  # Correlations
+library(PerformanceAnalytics) # Correlations
+library(leaps) # Model selection
+
+```
+
+
+
+# Read Data
+
+```{r Read Data}
+#libreria janitor
+raw_data <-  read.csv("nba.csv")
+colnames(raw_data) #siempre en minusculas.
+```
+
+
+# Variables Names
+
+```{r}
+raw_data %<>% clean_names() #el simbolo %<>% introduce la variable raw data en clean names y luego el resultado lo guarda en raw_data
+colnames(raw_data) #el clean name te ayuda a limpiar los nombres y modificarlos a mis preferencias. Sacar q termine por punto
+```
+
+
+# Summarize Data
+
+```{r Summarise Data}
+# libreria skimr
+skim(raw_data)
+#la desv tipica debe preocuparse si es pequena respecto a su media y deberiamos transformarla para que sea mayor o menor q . Si tiene poca variabilidad no nos va a ayudar para el modelo
+```
+
+* **Hay dos datos repetidos y varios NA**
+
+
+# Data Wrangling data
+
+* Data wrangling is the process of cleaning and unifying complex data sets for analysis, in turn boosting productivity within an organization.
+
+```{r Data Wranling}
+# delete duplicate
+# Remove duplicate rows of the dataframe
+raw_data %<>% distinct(player,.keep_all= TRUE)
+
+# delete NA's
+raw_data %<>% drop_na()
+
+# Summarise
+skim(raw_data)
+
+#los duplicados siempre eliminrlos pero con los NA no es necesario que sea siempre. Una opcion es eliminarlos cuando hay muchos datos. Otra es sustituirlos por algun estadistico como la media cuando es numerico, si es cualitativo como el pais, no se puede cambiar. La ultima es usar metricas de clasificacion como kNN poniendole el input correspondiente a su clase.
+
+# por ej en los bancos no es una buena practica quitar los NA
+
+```
+
+
+
+```{r fig.height = 20, fig.width = 4, fig.align = "center"}
+# aqui se relaciona la variable que quiero explicar con cada una de las vriables explicativas. Menos las tres categoricas
+
+#desde la 2 a la 25. Salario respecto a value, luego regresion y que los separe por cada uno de los indicadores
+
+#de los graficos de puntos se deben sacar las categoricas porq nos nos sirve. Se puede hacer otro tipo de grafico donde se diga el salario por pais.
+
+#aqui vemos que las explicativas no se comportan como el salario entonces se puede transformar a logaritmico el salario
+raw_data %>% 
+  select_at(vars(-c("player","nba_country","tm"))) %>% 
+  tidyr::gather("id", "value", 2:25) %>% 
+  ggplot(., aes(y=salary, x=value))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, color="black")+
+  facet_wrap(~id,ncol=2,scales="free_x")
+```
+
+```{r fig.height = 20, fig.width = 4, fig.align = "center"}
+#transformamos a logaritmo el salario.
+
+#aqui empezamos a ver que hay variables que nos sirven a explicar el salario
+
+#esto no sirve para detectar no linealidad
+
+#para el pais o equipo se puede hacer un histograma
+raw_data %>% 
+  select_at(vars(-c("player","nba_country","tm"))) %>% 
+  tidyr::gather("id", "value", 2:25) %>% 
+  ggplot(., aes(y=log(salary), x=value))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, color="black")+
+  facet_wrap(~id,ncol=2,scales="free_x")
+```
+
+# EDA
+## Log salary
+
+```{r Log salary,fig.height = 10, fig.width = 10, fig.align = "center"}
+
+#importante poner en el chunk el tamano de las figuras para que entre la grafica
+log_data <- raw_data %>% mutate(salary=log(salary)) #creo el dataframe con el salario en logaritmo
+
+skim(log_data)
+# Excluded vars (factor) 
+#saco las categoricas porq no nos sirven en este caso
+
+vars <- c("player","nba_country","tm")
+
+# Correlations
+corrplot(cor(log_data %>% 
+               select_at(vars(-vars)), 
+             use = "complete.obs"), 
+         method = "circle",type = "upper")
+
+# Other Correlations
+
+
+ggcorrplot(cor(log_data %>% 
+               select_at(vars(-vars)), 
+            use = "complete.obs"),
+            hc.order = TRUE,
+            type = "lower",  lab = TRUE)
+
+
+```
+
+
+```{r fig.height = 20, fig.width =20, fig.align = "center"}
+
+# Other Correlations. Interesante cuando tenemos pocas variables para poder analizar.
+
+#nos da la matriz de correlacion numerica con estrellas y numero si son signifcas o no
+#en la diagonal tenemos los histogramas
+# los xy plot de puntos estan en la triangular inferior.
+
+#resume todo lo anterior en un mismo grafico
+chart.Correlation(log_data %>% 
+               select_at(vars(-vars)),
+               histogram=TRUE, pch=19)
+
+
+```
+
+## VIF
+
+```{r fig.height = 20, fig.width =4, fig.align = "center"}
+# los analisis de residuos sirve solo para interpretar los resultados. Para predecir no nos sirve.
+
+# aqui se calcula el vif y vemos si hay problemas de multicolinealidad.
+
+#libreria car importante
+#el vif  entre 4 y 6 causan problemas entonces debemos eliminar las que tienen arriba de 10 y luego volver a calcularlo
+
+
+model_vif <- lm(salary~.-player-nba_country-tm, data=log_data)
+
+vif_values <- car::vif(model_vif)
+
+#create horizontal bar chart to display each VIF value
+barplot(vif_values, main = "VIF Values", horiz = TRUE, col = "steelblue")
+
+#add vertical line at 5
+abline(v = 5, lwd = 3, lty = 2)
+
+
+knitr::kable(vif_values)
+```
+## Conocimiento del negocio
+
+Ver las variables exogenas e endogenas
+
+## Modelos no lineales e interacciones
+
+Se hace un analisis de las variables 2 en 2 sobre el salario para ver si hay comportatmientos diferencias en la pendiente de la variable x
+## Variables Categoricas
+Se pueden introducir en el modelo. R autonamitcamente te genera las dummies. En ese caso da uno al pais (Estados Unidos) y 0 al resto. Por ej no tiene mucho sentido ponerle muchos valores a otros paises cuando son muy pocos. Aqui el equipo no tiene sentido sumarlo al modelo
+
+Variable endógena: 
+- Salario: log
+
+Variables exógenas:  
+- Edad (Age):  se presupone que a mayor edad mayor salario 
+- Edad elevado alcuadrado: considero que a partir de cierta edad ya no aumenta el salario con la edad 
+- Número del draft(NBA_DraftNumber): a menor número en el draft mayor salario 
+- Minutos jugados (MP): a mayor númerode minutos jugados mayor salario 
+- Minutos jugados al cuadrado: a partir de un cierto número de minutosjugados ya no aumenta el salario 
+- Eficiencia del jugador: a mayor eficiencia mayor salario 
+- Eficiencia deljugador al cuadrado: a partir de cierto nivel de eficiencia ya no afecta al salario 
+- Contribución a las victorias del equipo: a mayor contribución a las victorias del equipo mayor salario 
+- Contribución a las victorias del equipo al cuadrado: a partir de cierto nivel de aportación a las victorias del equipo ya no afecta al salario 
+- Porcentaje de participación en el juego (USG%): A mayor participación mayor salario 
+- Valor sobre jugadorde reemplazo (VORP): a mayor VORP mayor salario 
+- Valor sobre jugador de reemplazo al cuadrado: a partir de cierto nivel de VORP ya no afecta al salario 
+- Efectividad de tiro (TS%): a mayor efectividad de tiro mayor salario 
+- Efectividad asistencias (AST%): a mayor efectividad de asistencias mayor salario 
+- Interacciónde WS y VORP (WS:VORP): considero que están relacionadas estas dos variables, a mayores valores deWS y VORP mayor será el salario del jugadorA continuación se filtra la base de datos para poder observar sólo las variables que me interesan.
+
+
+
+
+
+# Model Selection
+
+```{r Regsubsets, fig.height = 10, fig.width =10, fig.align = "center"}
+#genera nba quitandole las variables correspondientes
+
+nba <- log_data %>% select_at(vars(-vars))
+
+set.seed(4000) #creo el set seed para tomar valores aleatorios
+num_data <- nrow(nba) #que tenga el numero de observaciones del data set nba
+num_data_test <- 10   #que el test tenga 10 observaciones
+train=sample(num_data ,num_data-num_data_test) #que el train tenga la diferencia de observaciones entre el data set nba y lo que se tomo para test
+
+
+data_train <- nba[train,] #separa la parte q va a estimar
+data_test  <-  nba[-train,] #parte que va a utilizar para predecir
+
+model_select <- regsubsets(salary~. , data =data_train, method = "seqrep",nvmax=24)
+
+model_select_summary <- summary(model_select)
+
+data.frame(
+  Adj.R2 = (model_select_summary$adjr2),
+  CP = (model_select_summary$cp),
+  BIC = (model_select_summary$bic)
+)
+
+model_select_summary$outmat
+
+plot(model_select, scale = "bic", main = "BIC")
+
+data.frame(
+  Adj.R2 = which.max(model_select_summary$adjr2),
+  CP = which.min(model_select_summary$cp),
+  BIC = which.min(model_select_summary$bic)
+) #selec por r2 se toma el mayor r2, con CP tiene que ser el menor y BIC debe ser el menor tmb
+
+#hay un problema al cambiar la semilla xq nos da varios modelos posibles
+coef(model_select,which.max(model_select_summary$adjr2))
+coef(model_select,which.min(model_select_summary$cp))
+coef(model_select,which.min(model_select_summary$bic))
+```
+**“All models are wrong, some models are useful”, Box, G.E.P**
+
+
+```{r}
+
+# adjR2 model
+
+nba_r2 <- lm(salary~ mp , data =data_train)
+summary(nba_r2)
+# CP model
+
+nba_cp <- lm(salary~ nba_draft_number+age+mp+per+ts+f_tr+trb+ast+tov+usg+dws+ws_48+dbpm, data =data_train)
+summary(nba_cp)
+
+# BIC model
+
+nba_bic <- lm(salary~ nba_draft_number+age+mp+drb, data =data_train)
+summary(nba_bic)
+
+```
+
+
+```{r}
+
+# Prediction
+
+# adjR2
+predict_r2 <- predict(nba_r2,newdata = data_test) #toma los datos q deje afuera para el test
+cbind(predict_r2,data_test$salary) #calculo unos con otros
+exp(cbind(predict_r2,data_test$salary)) #calculamos la exp para ver los datos en dolares
+mean((data_test$salary-predict_r2)^2)
+sqrt(mean((data_test$salary-predict_r2)^2))
+
+# CP
+predict_cp <- predict(nba_cp,newdata = data_test)
+cbind(predict_cp,data_test$salary)
+exp(cbind(predict_cp,data_test$salary))
+mean((data_test$salary-predict_cp)^2)
+sqrt(mean((data_test$salary-predict_cp)^2))
+
+# BIC
+predict_bic <- predict(nba_bic,newdata = data_test)
+cbind(predict_bic,data_test$salary)
+exp(cbind(predict_bic,data_test$salary))
+mean((data_test$salary-predict_bic)^2)
+sqrt(mean((data_test$salary-predict_bic)^2))
+
+#elijo el mejor modelo que mejor se a comportado. Pero solo vimos una sola simulacion entonces debemos hacer cross validation
+#deberiamos repetir el experimiento y tomar la media de los errores de prediccion
+
+```
+

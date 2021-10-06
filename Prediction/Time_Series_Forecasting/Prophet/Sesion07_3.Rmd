@@ -1,0 +1,63 @@
+---
+title: 'Sesion 07: Prophet I'
+subtitle: "Master en Data Science para Finanzas: Predicción"
+date: "\\textcopyright Ricardo A. Queralt @Cunef - V2.01"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+---
+
+```{r}
+library(ggplot2)
+library(StanHeaders)
+library(prophet)
+```
+
+
+
+```{r}
+df <- read.csv("example_air_passengers.csv")
+head(df)
+```
+
+```{r}
+ggplot(df,(aes(x=as.Date(ds),y=y)))+geom_line()
+```
+
+
+```{r}
+m <- prophet(df)
+class(m)
+
+```
+
+```{r}
+
+m
+```
+
+
+```{r}
+future <- make_future_dataframe(m, periods = 365)
+dim(df)
+dim(future)
+```
+
+```{r}
+forecast <- predict(m, future)
+tail(forecast[c("ds", "yhat", "yhat_lower", "yhat_upper")])
+```
+
+
+
+```{r}
+plot(m, forecast)
+```
+
+
+
+```{r}
+prophet_plot_components(m, forecast)
+```
+

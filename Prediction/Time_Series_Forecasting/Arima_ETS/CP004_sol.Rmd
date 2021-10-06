@@ -1,0 +1,452 @@
+---
+title: 'Caso Práctico 04: Ventas Apple'
+subtitle: "Master en Data Science para Finanzas: Predicción"
+date: "\\textcopyright Ricardo A. Queralt @Cunef - V1.03"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+---
+
+# Librerias
+
+```{r}
+require(forecast)
+require(xts)
+require(ggplot2)
+
+```
+
+# Leer datos
+
+```{r}
+# read data from CSV file
+# Datos fiscales!!!!!
+
+rawData <- read.csv2("IngresosApple.csv") #equivalente a csv2 toma delimitadores europeos. ; como separados , como dcimal
+rawVentas<-rawData$Ingresos 
+rawDate<-seq(as.Date("2008/04/01"), as.Date("2020/10/01"), by = "quarter") #comienzo del segundo trimestre y comienzo del ultimo trimestre del an1o
+tail(rawData,16)
+```
+
+```{r}
+#Create a XTS object
+xVentas=xts(rawVentas,order.by=rawDate) #odena los datos por el index
+
+#Generate quarterly data
+xVentas=to.quarterly(xVentas) #aqui el indice en lugar de ser una fecha pasa a ser trimestre. Genera maximo, minimo, apert
+
+#Transform to zoo data (forecast package)
+zVentas=as.zoo(xVentas$xVentas.Close) #nos quedamos oslol con el de cierre
+
+#Change name
+names(zVentas)="Ventas"
+
+
+```
+
+```{r}
+##Plot Serie
+autoplot(zVentas)+geom_point()+
+  ylab("Ventas")+ggtitle("Ventas Trimestrales APPLE")+xlab("Trimestres")
+
+#Ver que paso en el salto en las ventas
+```
+
+```{r}
+
+#graficando con data frame en vez de xts.
+
+df_new <- data.frame(value = coredata(xVentas$xVentas.Close),
+                     time = as.Date(as.yearqtr(zoo::index(xVentas), format = "Q%q/%y")))
+colnames(df_new) <- c("ventas","time")
+ggplot(df_new)+geom_point(aes(x=time,y=ventas))+geom_line(aes(x=time,y=ventas))+ylab("Ventas")+ggtitle("Ventas Trimestrales APPLE")+xlab("Trimestres")
+
+```
+
+
+```{r}
+#Seasonal Plot
+ggmonthplot(as.ts(zVentas))+ylab("Ventas")+ggtitle("Ventas Trimestrales APPLE: Componente Estacional")+xlab("Trimestres")
+
+```
+Fundamental este grafico
+
+En media el primer trimestre es el que mas ventas tiene. 1er trimestre fiscal corresponde al 4to trimestre del calendario.
+
+Sirve para ver si tenemos un componente estacional.
+
+
+
+```{r}
+#Select number of observation to compare forecast
+cOmit=16 #omito 16 datos
+
+#Data Size
+nObs=length(zVentas)
+
+#sub_sample
+oVentas <- window(zVentas,start=index(zVentas[1]),end=index(zVentas[nObs-cOmit]))
+
+#out sample (real data to forecast performance)
+pVentas <- window(zVentas,start=index(zVentas[nObs-cOmit+1]),end=index(zVentas[nObs]))
+```
+
+# ETS
+
+```{r}
+## Select automatic ETS
+etsfit<-ets(oVentas)
+#forecast model
+fventas.ets=forecast(etsfit, h=16) #prediccion 16 trimestres
+#Results
+summary(fventas.ets)
+
+```
+
+El modelo que selecciona es MAM. A de tendencia aditiva amortiguada. Componente estacional multiplicativo es decia, aumenta cuando aumenta el componente tendencial.
+
+```{r}
+#Plot
+autoplot(zVentas) + geom_forecast(fventas.ets,alpha=0.4)+ggtitle("ETS: Predicción APPLE")
+
+df_new <- data.frame(value = as.vector(zVentas),
+                     time = time(zVentas))
+ggplot(df_new)+geom_point(aes(x=time,y=value))+geom_line(aes(x=time,y=value))+ geom_forecast(fventas.ets,alpha=0.4)+ggtitle("ETS: Predicción APPLE")
+
+```
+
+Aca se generan intervalos de confianza negativos. Esto no pasa cuando la serie esta en logaritmo. Esto nos asegura que no tengamos predicciones negativas. Eso lo veremos con el ARIMA.
+
+La linea azul es la prediccion. En el 2017 nos dice que tenemos mas ventas a largo plazo que las que esta teniendo apple. Esto nos dice q no lo esta haciendo tan bien apple como esperabamos.
+
+Esto son modelos de CP xq a LP nos dan mucha incertidumbre lo que nos damos cuenta por los intervalos de confianza.
+
+```{r}
+#Accuracy
+
+
+accuracy(fventas.ets,pVentas)
+
+```
+
+Hacemos el accuracy para ver como predice el modelo en la muestra de test.
+
+ME mean error calcula el error medio y nos da negativo. Es decir, el modelo mientra en el training parece 0 osea esta sesgado a infravalorar.
+
+EL RMSE nos da el error en euros en media. 10000 dolares eso es muy alto. Tengamos en cuenta q son 16 trimestres.
+
+MAE, penaliza menos que el RMSE xq este ultimo esta al cuadrado en la formula.
+
+MAPE nos da un 13% y en la muestra 8%. En media e un error elevado. Sobre 16 trimstres no es tan grande.
+
+```{r}
+#Forecast out of the sample
+cOmit=0
+
+#Data Size
+nObs=length(zVentas)
+
+#sub_sample
+oVentas <- window(zVentas,start=index(zVentas[1]),end=index(zVentas[nObs-cOmit]))
+## Select automatic ETS
+etsfit<-ets(oVentas)
+#forecast model
+fventas.ets=forecast(etsfit)
+#Results
+summary(fventas.ets)
+
+#Plot
+autoplot(zVentas) + geom_forecast(fventas.ets,alpha=0.4)+ggtitle("ETS: Predicción APPLE 2021-2022")
+```
+Aqui con los intervalos de confianza hay una polemica. Se deben calcular al 80 y 95?
+
+Hay estudiosos q dicen reducir los intervlos de confianza a un 50 xq distorsionan mucho lo que es la realidad predictiva.
+
+Considero q a corto plazo es bueno usar un 80 o 95 pero a LP no
+
+
+# ARIMA
+
+```{r}
+#Select number of observation to compare forecast
+cOmit=16
+
+#Data Size
+nObs=length(zVentas)
+
+#sub_sample
+oVentas <- window(zVentas,start=index(zVentas[1]),end=index(zVentas[nObs-cOmit]))
+
+#out sample (real data to forecast performance)
+pVentas <- window(zVentas,start=index(zVentas[nObs-cOmit+1]),end=index(zVentas[nObs]))
+```
+
+
+```{r}
+#ARIMA MODEL Automatic
+fit1=auto.arima(oVentas,lambda=0) #cuando le ponemos autoarima estima el modelo ruido blanco.
+summary(fit1)
+```
+
+Aca nos dice que no hay modelo mejor que las tasa de variacion anteriores. 
+
+Por lo tanto el ARIMA no nos aporta informacion que nos mejore la prediccion
+
+```{r}
+# Tasa Variacion intertrimestral
+fit2=auto.arima(oVentas,lambda=0, d=1,D=0) #fuerzo un modelo que hgaa la diferencia estacional y no le permito que selecione tendencia regular
+summary(fit2)
+```
+
+Tenemos un AIC menor q el automatico por eso seleccoinamos este.
+
+Ahora hacemos analisis de residuos de lso dos modelos
+```{r}
+#residual analysis
+ggtsdisplay(fit1$residuals)
+ggtsdisplay(fit2$residuals)
+```
+Son practicamente iguales los dos modelos.
+
+Los dos son validos desde el punto de vista de modelizacion
+```{r}
+#box-Ljung Test
+#cmo el modelo estima 1 parametros fitdf=1
+Box.test(fit2$residuals,lag=4, fitdf=1, type="Lj")
+Box.test(fit2$residuals,lag=8, fitdf=1, type="Lj")
+Box.test(fit2$residuals,lag=12, fitdf=1, type="Lj")
+
+
+```
+
+Todos los residuos son ruido blanco. Entonces confirmamos que son ruido blanco
+
+```{r}
+#Graphic
+
+
+gData=data.frame(Date=time(fit2$residuals), fit2$residuals, check.names=FALSE, row.names=NULL)
+ggplot(gData, aes(x=fit2$residuals)) +
+  geom_point(aes(x=Date,y=fit2$residuals))+
+  geom_line(aes(x=Date,y=fit2$residuals))+
+  geom_hline(yintercept = 2*sd(fit2$residuals),color="red",linetype = 2)+
+  geom_hline(yintercept = -2*sd(fit2$residuals),color="red",linetype = 2)+
+  ylab("Residuos")+
+  ggtitle("Residuos Modelo ARIMA: Ventas Trimestrales APPLE")+
+  xlab("Trimestres")
+
+
+ggplot(gData, aes(x=fit2$residuals)) + 
+  geom_histogram(aes(y = ..density..), color="black", fill=NA) + #Histogram
+  geom_density(color="royalblue",fill="blue",alpha=.1)+ #Density
+  geom_rug(col="darkred",alpha=.1)+ #Rug
+  stat_function(fun = dnorm, colour = "red",args = list(mean = mean(fit2$residuals),sd=sd(fit2$residuals) )) #Normal Density
+
+```
+
+Graficamos los residuos con unas banda de mas menos 2 sigman y luego el histograma con la densidad.
+
+Parece que no hay valores atipicos. Cuando vemos la normalidad, la distribucion nos dice que estan bastante parecidas. El histograma engana un poco.
+
+
+
+```{r}
+#Plot boxplot
+#coredata() xts to vector
+ggplot(gData) + geom_boxplot(aes(x = is.numeric(fit2$residuals), y = fit2$residuals),
+                             outlier.colour="red", outlier.shape=16,outlier.size=2)+
+  xlab("")+ggtitle("Boxplot")
+
+```
+
+Aqui vemos que no sale ningun outlier en el boxplot
+
+```{r}
+#Jarque-Bera test (normality test)
+library(moments)
+jarque.test(as.numeric(coredata(fit2$residuals)))
+
+```
+
+La hipotesis nula de normalidad. Entonces por el p value vemos que son normales
+
+
+```{r}
+#Forecast
+fventas.arima=forecast(fit2,h=16)
+
+#plot
+ggplot(df_new)+geom_point(aes(x=time,y=value))+geom_line(aes(x=time,y=value))+ geom_forecast(fventas.arima,alpha=0.4)+ggtitle("ARIMA: Predicción APPLE")
+
+#data
+fventas.arima
+```
+
+Aqui al tener logaritmo el intervalo no es simetrico. Esto quiere decir que no dal o mismo desde el inferior con el sueprrior. Por lo tanto usar logaritmo a largo plazo nos da esta ventaja.
+
+Si fuera presidente de apple usaria este modelo para mostrarle a los accionistas.
+
+El ARIMA no funciona. La idea fundamental es mantener las tasas de crecimiento de las ventas.
+
+
+
+Volvemos a estimar el ETS y luego comparamos los dos
+```{r}
+## Select automatic ETS
+etsfit<-ets(oVentas)
+#forecast model
+fventas.ets=forecast(etsfit, h=16)
+#Results
+summary(fventas.ets)
+
+```
+
+
+
+```{r}
+#Plot
+ggplot(df_new)+geom_point(aes(x=time,y=value))+
+  geom_line(aes(x=time,y=value))+ 
+  geom_forecast(fventas.arima,color="blue",alpha=0.183, plot.conf = FALSE)+
+  geom_forecast(fventas.ets,color="red", alpha=0.183,plot.conf = FALSE)+
+  ggtitle("Predicción APPLE: ARIMA(blue) vs ETS(red)")
+
+cbind(fventas.arima$mean,fventas.ets$mean)
+
+```
+Si utilizamos la media de las dos predicciones clavamos la prediccion.
+
+
+```{r}
+#Forecast out of the sample
+cOmit=0
+
+#Data Size
+nObs=length(zVentas)
+
+#sub_sample
+oVentas <- window(zVentas,start=index(zVentas[1]),end=index(zVentas[nObs-cOmit]))
+## Select automatic ETS
+etsfit<-ets(oVentas)
+#forecast model
+fventas.ets=forecast(etsfit)
+
+## ARIMA
+fit2=auto.arima(oVentas,lambda=0, d=1,D=0)
+fventas.arima=forecast(fit2)
+
+#Plot
+autoplot(zVentas) + geom_forecast(fventas.ets,alpha=0.4)+ggtitle("ETS: Predicción APPLE 2021-2022")+
+  geom_forecast(fventas.arima,alpha=0.4)+ggtitle("ETS: Predicción APPLE 2021-2022")
+
+
+```
+Fuera de la muestra ya no hay tanta diferencia entre ETS y ARIMA. A corto plazo son practicamente iguales, cambian luego en el segundo.
+
+El ARIMA no capta bien el componente estacional mientra que el ETS si.
+
+Ahora nos introducimos al paquete tsibble. Con tidyverse crearon los datos tsibble que son data frames de series temporales. que se usan para los modelos. 
+
+La diferencia forecast con el AutoArima solo nos permite estimar una serie temporal. Ahora con esto podemos estimar un conjunto de series temporales.
+
+Con fagre podemos estimar las series de 50 sucursales lo hacemos todo de una.
+
+Fagre es el mismo que fagre. tsibble nos permite usar dplyr. 
+# tsibble
+https://tidyverts.org
+https://tsibble.tidyverts.org
+```{r}
+library(tsibble)
+
+tsVentas <- tsibble(ventas=rawVentas,trimestre=yearquarter(rawDate),index=trimestre) #lo creamos con la primer columna ventas y la segunda trimestre. Creamos ls indices a parti de las fchas. Le decimos que el indice es trimestre. Todas las columnas que vayan en tsibble sigue este indice
+
+str(tsVentas)
+tsVentas
+```
+
+La estructura de esto nos dice que es una clase S3 que es un objeto parte de dataframe y constriuye una tabla data frame, una table tsbile y una tabla comun. Es decir funcionara cualquiera de los tres objetos.
+
+La series ventas y trimestre y todo el resto de indicadores. El intervalo abajo nos dice que es trimestral.
+
+Ventas son enteros y trimetres es S3 de tipo trimestral.
+
+Ahora podemos trabajar directamente con ggplot 2
+```{r}
+tsVentas %>% ggplot(aes(x=trimestre,y=ventas))+geom_line()+geom_point()
+```
+
+Ahora entiende perfectamente los datos
+# Fable 
+
+Es el forecast utulizado para este tipo de objeto
+
+
+
+```{r}
+library(fable)
+library(feasts)
+otsVentas <- tsVentas %>% 
+  filter_index(~"2016 Q4") #tiene un filtro como dplyr que significa hasta esta fecha. No se dice omite tanto. Aca solo ponemos la fecha. Coge desde el origen hasta q4 de 2016.
+
+
+tsfit <- otsVentas %>% model(ets=ETS(ventas),arima=ARIMA(log(ventas))) #guarda los datos en tsfir. Estima un modelo automatico ETS a ventas y luego un ARIMA en log a ventas
+
+tsfit
+tsfit %>% dplyr::select(ets) %>% report() #coge el resultado de ets y haz el report
+tsfit %>% dplyr::select(arima) %>% report() #
+tsfit %>% accuracy() #de los dos modelos dame el accuracy
+tsfc <- tsfit %>%
+  forecast(h = "1 years") #de los dos modelos hazme la prediccion a un an1o y guardalo en tsfc
+tsfc
+tsfc %>% accuracy(tsVentas) #hazlo con las ventas reales al accuracy
+tsfc %>% autoplot(tsVentas) #replicame las ventas
+```
+
+
+
+En tsfit tiene dos columnas con ETS y el ARIMA (nombre q le pusimos)
+
+Luego tenemos los modelos con sus errores.
+
+En el test vemos el comportamiento en los cuatro trimestre de 2017. 
+
+# Cross Validation
+
+
+```{r}
+library(dplyr)
+apple_tr <- tsVentas %>%  #coge las ventas y llamala appletr construye un datama frame que imite la serie temporal
+  dplyr::slice(1:(n()-8)) %>%
+  stretch_tsibble(.init = 20, .step = 1) #le ponen -8 para que vaya de 8 en 8. Que inice en 20 y vaya de uno en uno
+#si nos fijamos el dataframe tiene modelos desde 2008 hasta 2013. Nos da 24 modelos. Nos hara prediccion a uno, dos, tres hasta 8. Eso es lo que significa el 8
+
+
+fc <- apple_tr %>% #coge los datos y prueba los modelos ets y arima, haz prediccion a 8, agrupalos por eel ide y por tipo de model. Genera una nueva serie que coga el numero de fila. Es decir, selecciona el horizonte e prediccion en cada modelo y luego desagrupalo para tener el fc. 
+  model(ETS(ventas),ARIMA(log(ventas))) %>%
+  forecast(h = 8) %>%
+  group_by(.id,.model) %>%
+  mutate(h = row_number()) %>%
+  ungroup()
+
+# h es el  horizonte de prediccion 
+fc %>%
+  accuracy(tsVentas, by = c("h", ".model")) %>%
+  ggplot(aes(x = h, y = RMSE,color=.model)) +
+  geom_point()
+#graficame el accuracy con el RMSe
+
+fc %>%
+  accuracy(tsVentas, by = c("h", ".model")) %>%
+  ggplot(aes(x = h, y = MAPE,color=.model)) +
+  geom_point()
+
+#graficame el accuracy con el MAPE
+
+```
+Nos dice que a corto plazo el error es muy pequeno.
+
+A dos an1os es igual. A tres se cimporta mejor el ARIMA igual que 4 pero luego se comporta mejor el ETS pero luego el ARIMA se vuelve a comportar mejor. Entonces es importante seleccionar el modelo segun el horizonte de prediccion.
+
+Si es a 4 podemos ver que se comporta mejor el ARIMA. En periodos anteriores da igual.
+

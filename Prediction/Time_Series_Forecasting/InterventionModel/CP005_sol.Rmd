@@ -1,0 +1,280 @@
+---
+title: 'Caso Práctico 05: Colgate vs Crest'
+subtitle: "Master en Data Science para Finanzas: Predicción"
+date: "\\textcopyright Ricardo A. Queralt @Cunef - V2.03"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+---
+
+```{r}
+library(openxlsx)
+data <- read.xlsx("data.xlsx", colNames = TRUE, detectDates = TRUE)
+head(data)
+tail(data)
+```
+
+
+
+```{r}
+colgate <- ts(data$Colgate, start = 1958, frequency = 52)
+crest <- ts(data$Crest, start = 1958, frequency = 52)
+```
+
+
+```{r}
+mydata <- ts(data[,c(3,4)], start = 1958, frequency = 52)
+```
+
+
+```{r}
+library(forecast)
+library(ggplot2)
+library(dplyr)
+```
+
+
+
+
+```{r}
+
+autoplot(colgate) +
+  ggtitle("Colgate Market Shares") +
+  xlab("Week") +
+  ylab("Market Share")
+autoplot(crest) +
+  ggtitle("Crest Market Shares") +
+  xlab("Week") +
+  ylab("Market Share")
+autoplot(mydata, facets = TRUE)
+autoplot(mydata, facets = FALSE) +
+  ggtitle("Cuotas de mercado de Crest y Colgate") +
+  xlab("Tiempo") +
+  ylab("Cuota de mercado")
+```
+
+
+
+```{r}
+ggseasonplot(colgate, month.labels = TRUE, month.labels.left = TRUE) +
+  ylab("Market Share") +
+  ggtitle("Seasonal plot: Colgate Market Share")
+
+ggseasonplot(crest, week.labels = TRUE, week.labels.left = TRUE) +
+  ylab("Market Share") +
+  ggtitle("Seasonal plot: Crest Market Share")
+```
+
+
+```{r}
+ggseasonplot(colgate, polar = TRUE) +
+  ylab("Market Share") +
+  ggtitle("Seasonal plot: Colgate Market Share")
+
+ggseasonplot(crest, polar = TRUE) +
+  ylab("Market Share") +
+  ggtitle("Seasonal plot: Crest Market Share")
+```
+
+
+```{r}
+ggsubseriesplot(colgate) +
+  ylab("$ million") +
+  ggtitle("Seasonal subseries plot: Colgate Market Share")
+
+ggsubseriesplot(crest) +
+  ylab("$ million") +
+  ggtitle("Seasonal subseries plot: Crest Market Share")
+```
+
+
+```{r}
+qplot(crest, colgate) +
+  ylab("Colgate market share)") + xlab("Crest market share")
+```
+
+
+```{r}
+gglagplot(crest)
+gglagplot(colgate)
+```
+
+```{r}
+ndiffs(colgate)
+ndiffs(crest)
+```
+
+
+```{r}
+nsdiffs(colgate)
+nsdiffs(crest)
+```
+
+# Fitting the ARIMA models
+
+
+```{r} 
+(fit_colgate <- auto.arima(colgate, seasonal = TRUE))
+(fit_crest <- auto.arima(crest, seasonal = TRUE))
+```
+
+```{r}
+checkresiduals(fit_colgate)
+checkresiduals(fit_crest)
+```
+
+
+```{r}
+fit_colgate %>% forecast(h = 16) %>% autoplot()
+fit_crest %>% forecast(h = 16) %>% autoplot()
+```
+
+
+```{r}
+library(tsoutliers)
+(colgate_outlier <- tso(colgate, types = c("TC", "AO", "LS", "IO", "SLS")))
+plot(colgate_outlier)
+```
+  
+```{r}
+(crest_outlier <- tso(crest, types = c("TC", "AO", "LS", "IO", "SLS")))
+plot(crest_outlier)
+summary(crest_outlier)
+```
+```{r}
+(outliers_colgate_idx <- colgate_outlier$outliers$ind)
+(outliers_crest_idx <- crest_outlier$outliers$ind)
+```
+
+
+```{r}
+(fit_colgate_outlier <- auto.arima(colgate_outlier$yadj, seasonal = TRUE))
+(fit_crest_outlier <- auto.arima(crest_outlier$yadj, seasonal = TRUE))
+```
+
+
+```{r}
+checkresiduals(fit_colgate_outlier)
+checkresiduals(fit_crest_outlier)
+```
+  
+  
+```{r}
+fit_colgate_outlier %>% forecast(h = 16) %>% autoplot()
+fit_crest_outlier %>% forecast(h = 16) %>% autoplot()
+```
+
+
+# Intervention Model
+
+```{r}
+library(TSA)
+```
+
+  
+```{r}
+
+arimax_model_crest <- arimax(crest,
+                       order = c(0,1,1), #orden del ARIMA
+                       xtransf = data.frame(I1 = (1*(seq(crest) >= 136))),             
+                       transfer = list(c(1,0)), 
+                       method = 'ML')
+
+summary(arimax_model_crest)
+autoplot(fitted(arimax_model_crest))+autolayer(crest)
+```
+
+
+```{r}
+checkresiduals(arimax_model_crest)
+```
+
+
+```{r}
+
+escalon=(I1 = (1*(seq(crest) >= 136)))
+w0=as.numeric(arimax_model_crest$coef["I1-MA0"])
+d1=as.numeric(arimax_model_crest$coef["I1-AR1"])
+
+
+plot(ts(stats::filter(escalon,filter=d1,method='recursive',side=1)*w0,
+frequency=52,start=1958),type='h',ylab='')
+abline(h=0)
+
+```
+
+
+
+  
+```{r}
+
+arimax_model_colgate <- arimax(colgate,
+                       order = c(0,1,1), #orden del ARIMA
+                       xtransf = data.frame(I1 = (1*(seq(colgate) >= 136))),             
+                       transfer = list(c(1,0)), 
+                       method = 'ML')
+
+summary(arimax_model_colgate)
+autoplot(fitted(arimax_model_colgate))+autolayer(colgate)
+```
+
+
+```{r}
+checkresiduals(arimax_model_colgate)
+```
+
+
+```{r}
+
+escalon=(I1 = (1*(seq(colgate) >= 136)))
+w0=as.numeric(arimax_model_colgate$coef["I1-MA0"])
+d1=as.numeric(arimax_model_colgate$coef["I1-AR1"])
+
+
+plot(ts(stats::filter(escalon,filter=d1,method='recursive',side=1)*w0,
+frequency=52,start=1958),type='h',ylab='')
+abline(h=0)
+
+```
+
+
+# Funcion TRansferencia
+
+
+```{r}
+mod.transf.colgate <- arimax(x = colgate, order = c(1, 0, 0), 
+                                 xtransf = data.frame(crest), 
+                                 transfer = list(c(0,20)), 
+                                 method = "ML")
+mod.transf.colgate
+
+```
+
+
+
+```{r}
+mod.transf.colgate <- arimax(x = colgate, order = c(1, 0, 0), 
+                                 xtransf = data.frame(crest), 
+                                 transfer = list(c(0,0)), 
+                                 method = "ML")
+mod.transf.colgate
+
+```
+
+
+```{r}
+library(lmtest)
+coeftest(mod.transf.colgate)
+```
+
+```{r}
+(mod1 <- Arima(colgate, order = c(1, 0, 0), xreg = crest))
+
+```
+
+```{r}
+xnew <- fit_crest %>% forecast(h = 8)
+mod1 %>% forecast(h = 8,xreg=xnew$mean) %>% autoplot()
+```
+

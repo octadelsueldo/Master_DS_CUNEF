@@ -1,0 +1,254 @@
+---
+title: "CP_03_v02_PISA"
+output:
+  html_notebook:
+    toc: yes
+    toc_depth: 2
+    code_folding: none
+    highlight: pygments
+    theme: sandstone
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<!--AQUI EL ESTILO CSS-->
+
+```{css, echo = FALSE}
+```
+
+<!--FIN DEL ESTILO CSS-->
+
+
+[//]: Comentario
+
+
+# Libraries and functions
+
+
+
+```{r Libraries and functions, message=FALSE, warning=FALSE}
+library(here) # Comentar
+library(tidyverse)
+library(janitor) # Clean names
+library(magrittr) # Pipe operators
+library(skimr)
+library(modelr)
+library(mgcv)
+```
+
+
+## My functions
+
+
+```{r misc_functions}
+source('myfunctions.R') #fichero con las funciones que uso. Util cuando tenemos funciones q podemos reutilizar
+```
+
+
+## Data
+
+
+```{r initial_inspection_of_pisa, echo=1}
+pisa = read.csv('pisasci2006.csv')
+
+head(pisa)
+
+skim(pisa)
+
+```
+
+
+
+```{r bivariate_relationships, warning=FALSE, message=FALSE}
+dmelt = pisa %>% 
+  select(-Evidence, -Explain, -Issues, -Interest, -Support) %>% 
+  gather(key=Variable, 
+         value=Value, 
+         -Overall, -Country) #gather crea el dataframe con las variables que quiero, las variables en columnas.
+
+
+ggplot(aes(x=Value,y=Overall), data=dmelt) +
+  geom_point(color='#ff5500',alpha=.75) +
+  geom_smooth(se=F, lwd=.5, color='#00aaff') +
+  geom_text(aes(label=Country), alpha=0, size=1,angle=30, hjust=-.2,vjust=-.2) +
+  facet_wrap(~Variable, scales='free_x') +
+  labs(x='') +
+  theme_trueMinimal() #theme_trueMinimal viene de source de arriba
+```
+
+
+## Single Predictor
+
+### Linear Fit
+
+
+```{r mod_lm, echo=-4}
+library(mgcv)
+mod_lm <- gam(Overall ~ Income, data=pisa)
+summary(mod_lm)
+```
+
+
+### GAM
+
+### Fitting the model
+
+-  `bs = cr`, denoting cubic regression splines.
+
+```{r mod_gam1}
+mod_gam1 <- gam(Overall ~ s(Income, bs="cr"), data=pisa) #cr cubico. Selecciona por cros validation
+summary(mod_gam1)
+```
+
+edf son los grados de libertad. Para mas grados de libertad mas funciones necesitas. Si edf es uno significa que el modelo es lineal y luego si son significativos o no.
+
+El rcuadrado que usamos es el devianca explained que es cuanto explicamos de la variabilidad de la variable con el modelo
+
+### Graphical Display
+
+
+
+```{r mgcv_plot}
+plot(mod_gam1)
+```
+
+lamba tiene valores negativos. Si tienes ingresos son mayores a 0.7 tendras ingresos por arriba de la media xq esta por arriba de 0
+
+```{r visualize_income_marginal_effect}
+
+#ahora hacemos el modelo predictivo
+library(ggeffects)
+
+plot_dat <- ggpredict(mod_gam1, terms = "Income")
+
+ggplot(plot_dat, aes(x = x, y = predicted)) + 
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .25) +
+  geom_line(color = 'dodgerblue') + 
+  labs(x = 'Income')
+```
+
+### Model Comparison
+
+
+```{r model_comparison}
+#aca vemos que el modelo lm tiene 3 grados de libertad xq tiene la constante, el beta ya la varianza del error que tiene que estimar.
+# en el otro tenemos8 xq son la constante, el beta y los 6 que tenemos que estimar.
+
+#es mejor el modelo gam
+AIC(mod_lm, mod_gam1)
+```
+
+Likelihood ratio test (approximate).
+
+```{r anova_gam}
+anova(mod_lm, mod_gam1, test="Chisq") #nos dice que el modelo gam es mejor. Nos debemos fijar en el pvalue para ver si los modelos son significativos.
+```
+
+
+## Multiple Predictors
+
+
+### Linear Fit
+
+
+```{r mod_lm2}
+mod_lm2 <- gam(Overall ~ Income + Edu + Health+HDI, data=pisa)
+summary(mod_lm2)
+```
+
+### GAM
+
+
+```{r mod_gam2}
+mod_gam2 <- gam(Overall ~ s(Income) + s(Edu) + s(Health)+ s(HDI), data=pisa)
+summary(mod_gam2)
+```
+Aca nos damos cuenta que health es lineal al tener un edf de uno
+
+```{r mod_gam2_b}
+mod_gam2b <- gam(Overall ~ s(Income) + s(Edu) + s(Health), data=pisa)
+summary(mod_gam2b)
+```
+
+```{r mod_gam2_plot}
+plot(mod_gam2)  # base mgcv plot
+
+library(patchwork) 
+
+g1 = 
+  ggpredict(mod_gam2, terms = "Income") %>% 
+  ggplot(aes(x = x, y = predicted)) + 
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .25) +
+  geom_line(color = 'dodgerblue') + 
+  labs(x = 'Income')
+g2 = 
+  ggpredict(mod_gam2, terms = "Edu") %>% 
+  ggplot(aes(x = x, y = predicted)) + 
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .25) +
+  geom_line(color = 'dodgerblue') + 
+  labs(x = 'Edu')
+g3 = 
+  ggpredict(mod_gam2, terms = "Health") %>% 
+  ggplot(aes(x = x, y = predicted)) + 
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high), alpha = .25) +
+  geom_line(color = 'dodgerblue') + 
+  labs(x = 'Health')
+
+(g2 + g3 + g1 + plot_layout(nrow = 2)) * theme_trueMinimal()
+```
+```{r mod_gam2_c}
+mod_gam2c <- gam(Overall ~ s(Income) + s(Edu) + Health, data=pisa)
+summary(mod_gam2c)
+```
+
+Estamos explicando el 90.3% de las desviaciones
+
+### 2D Smooths
+
+
+```{r mod_gam3}
+mod_gam3 <- gam(Overall ~ Health + te(Income, Edu), data=pisa) #dejamos health lineal y ponemos te para hacer efectos cruzados en variables
+summary(mod_gam3)
+```
+
+Al estimar el modelo con iteracion reduce el r2 o devianza explained
+
+```{r mod_gam3_plot, warning=FALSE}
+# use vis.gam from mgcv
+vis.gam(mod_gam3, view = c('Income', 'Edu'), theta = 90, phi = 10)
+vis.gam(mod_gam3, view = c('Income', 'Edu'), plot.type = 'contour')
+
+```
+Este modelo elimina la correlacion entre educacion e ingreso. Si las lineas fueran rectas significa que no hay iteracion.
+
+Las lineas son los overall. Aca vemos como interactuan las dos para darnos el overall
+
+
+### Model Comparison
+
+
+```{r model_comparison_redux}
+AIC(mod_lm2, mod_gam2, mod_gam3)
+```
+
+
+El modelo 2 se comporta mejor que los otros modelos al tener el menor AIC
+
+### method="REML"
+Los metodos de antes se seleccionan por CV. Validacion en este caso al ser tan pequeña la muestra no es tan buena xq no hay muchos datos para predecir.
+
+El metodo REML estima por maxima verosimilud los grados de libertad (df) no los esta calibrando por validacion cruzada.
+
+El REML genera sobreajuste en muestras grandes. Eso nos fijamos en los uno diciendonos que la relacion es lineal.
+
+
+```{r}
+mod_gam4 <- gam(Overall ~ s(Income) + s(Edu) + s(Health)+ s(HDI),method="REML", data=pisa)
+summary(mod_gam4)
+```
+
+Los esplines se utilizan como analisis exploratorio previo. Se debe hacer un grafico de puntos para ver si tienen comportamientos no lineales.
+
+Podemos meter splin dentro del elastic net tmb. 

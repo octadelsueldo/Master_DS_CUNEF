@@ -1,0 +1,88 @@
+---
+title: 'Caso Práctico 07: BMW vs Volkswagen II'
+subtitle: "Master en Data Science para Finanzas: Predicción"
+date: "\\textcopyright Ricardo A. Queralt @Cunef - V1.03"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+---
+
+```{r}
+library(tseries)
+library(ggplot2)
+library(CausalImpact)
+```
+
+```{r}
+start = "2011-01-03"
+  end = "2017-03-20"
+quote = "AdjClose"
+
+VolksWagen <- get.hist.quote(instrument = "VOW.DE", start, end, quote, compression = "w")
+BMW <- get.hist.quote(instrument = "BMW.DE", start, end, quote, compression = "w")
+Allianz <- get.hist.quote(instrument = "ALV.DE", start, end, quote, compression = "w")
+series <- cbind(VolksWagen, BMW, Allianz)
+```
+
+```{r}
+# grafico de las series
+colnames(series) <- c("VolksWagen", "BMW", "Allianz")
+autoplot(series, facet = NULL) + xlab("") + ylab("Precios Valor Ajustado")
+# allianz se parece muchisimo en el comportamiento que tiene. La idea es como usar la informacion de allianz para predecir el comportamiento
+```
+
+```{r}
+pre.period <- as.Date(c(start, "2015-09-14")) #ponemos las semanas donde empieza y termina
+post.period <- as.Date(c("2015-09-21", end))
+```
+
+
+# Modelo Univariante
+
+```{r}
+impact_vw <- CausalImpact(series[, 1], pre.period, post.period, model.args = list(niter = 1000, nseasons = 52))
+plot(impact_vw)
+
+# estimo el modelo, datos semanales y que haga el grafico. 
+
+
+```
+
+```{r}
+summary(impact_vw)
+
+# aqui vemos que el efecto causal
+```
+
+# Modelo Multivariante
+
+```{r}
+
+# hacemos el mismo modelo pero ponemos como variables explicativa ademas BMW, es como hacer un arimax. Es una funcion de transferencia entre las dos. Solo cogemos volk y bmw
+impact_vw_reg <- CausalImpact(series[,1:2], pre.period, post.period, model.args = list(niter = 1000, nseasons = 52))
+plot(impact_vw_reg)
+# aqui los resultados son diferenctes y decimos que el efecto continua porq no llego a quebrar el 0. 
+# el efecto acumulado es significativo totalmente y lo vemos al introducir la relacion multivariante. Es decir para los accionistas fue muy grave el acumulado para los accionistas no tiene sentido. Lo que tiene sentido es el segundo plot. 
+```
+
+```{r}
+summary(impact_vw_reg)
+```
+
+
+
+```{r}
+impact_vw_reg2 <- CausalImpact(series[,1:3], pre.period, post.period, model.args = list(niter = 1000, nseasons = 52))
+plot(impact_vw_reg2)
+
+# probamos ahora a meter las 3. La primera es la que tiene el efecto. Aqui nos damos cuento que es curioso como cmabia el modelo predictivo. Cuando le meto informacion cambia bastante xq estamos uniendo la regresion entre las 3 acciones 
+```
+
+
+
+```{r}
+summary(impact_vw_reg2)
+# el efecto es mucho mayor si nos damos cuenta como funciona el mercado. Este modelo no nos vale para hacer prediccion fuera del horizonte. PAra hacer prediccion con este modelo es crear donde queremos predecir un mes por ejemplo es inventarnos los valores y de ahi le decimos que nos haga la intervencion en el primer dato que no tenemos. Le hacemos caso solo a la predicciones. 
+```
+

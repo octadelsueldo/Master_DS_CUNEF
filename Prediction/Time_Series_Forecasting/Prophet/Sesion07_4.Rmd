@@ -1,0 +1,52 @@
+---
+title: 'Sesion 07: Prophet II'
+subtitle: "Master en Data Science para Finanzas: Predicción"
+date: "\\textcopyright Ricardo A. Queralt @Cunef - V2.01"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+---
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(prophet)
+library(quantmod)
+```
+
+```{r}
+AAPL <- getSymbols("AAPL",env=NULL, from="1997-01-01",to="2020-10-31")
+
+df <- data.frame(ds=index(AAPL),y=coredata(AAPL[,6])) 
+colnames(df) <- c("ds","y")
+```
+
+
+```{r}
+model <- prophet(df,daily.seasonality = T)
+f_model <- make_future_dataframe(model,period=365)
+AAPL_predict <- predict(model,f_model)
+```
+
+
+```{r}
+tail(AAPL_predict[c("ds","yhat","yhat_lower","yhat_upper")],20)
+
+```
+
+```{r}
+
+plot(model,AAPL_predict,xlab="Years",ylab="Price")
+```
+
+```{r}
+prophet_plot_components(model,AAPL_predict)
+
+```
+
+
+```{r}
+dyplot.prophet(model,AAPL_predict)
+```
+

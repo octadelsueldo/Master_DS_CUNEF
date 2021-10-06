@@ -1,0 +1,147 @@
+---
+title: 'Caso Práctico 06: BMW vs Volkswagen'
+subtitle: "Master en Data Science para Finanzas: Predicción"
+date: "\\textcopyright Ricardo A. Queralt @Cunef - V1.03"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+---
+
+# Modelo Garch
+
+```{r libraries}
+library(tidyverse)
+library(quantmod)
+library(forecast)
+library(fGarch)
+library(patchwork)
+```
+
+
+## Datos yahoo
+```{r}
+#Yahoo ticker (stock or index) 
+sSymbol="BMW.DE"
+
+#get data from yahoo
+mData<-getSymbols(sSymbol ,from="1990-01-01",to="2020-10-31",auto.assign=FALSE)
+#Define workdata
+xData=Ad(mData)
+
+#Calculate Daily Arithmetic Return
+dRentCont=dailyReturn(xData,type='log',leading=FALSE)
+#Exclude NA (First data)
+dRentCont=na.exclude(dRentCont)
+```
+
+```{r}
+autoplot(xData)
+autoplot(dRentCont) #cluster de volatilidad en varios periodos
+autoplot(dRentCont^2)
+```
+
+```{r}
+# using patchwork
+autoplot(xData)/autoplot(dRentCont)/autoplot(dRentCont^2) #aca observamos los cluster de volatilidad
+
+#si ponemos la barra dividir observamos un grafico bajo del otro
+```
+
+
+
+```{r}
+# Mean model
+
+#testing mean
+t.test(as.vector(dRentCont)) #verificamos si tiene media cero. Al ser el pvaleu mayor a 005 decimos que tiene media cero
+
+```
+
+
+```{r}
+#ACF y PACF #observamos si los rendimientos son ruido blanco
+ggtsdisplay(dRentCont) 
+
+#Ljung-Box Test 
+Box.test(dRentCont,lag=10,  type="Lj") #observamos problemas de autocorrelacion. Parecen ruido blanco no l oson. Hay mucha autocorrelacion en el modelo por eso debemos estimar un autoarima.
+Box.test(dRentCont,lag=20,  type="Lj")
+Box.test(dRentCont,lag=40,  type="Lj")
+```
+
+
+```{r}
+meanmodel <- auto.arima(xData,lambda=0) #le pongo logatirmo porq luego debo trabajar con la rentabilidad logaritmica
+summary(meanmodel) #toma el media movil 4 como significativa
+```
+
+```{r}
+residuos_arima <- meanmodel$residuals
+ggtsdisplay(residuos_arima)
+Box.test(residuos_arima,lag=10,  type="Lj") #ruido balnco
+Box.test(residuos_arima,lag=20,  type="Lj") #ruido blanco
+Box.test(residuos_arima,lag=40,  type="Lj") #no es ruido blanco pero no tiene mucho sentido tner una correlacion de tantos dias. Parece tener un comportamiento estacional. Al ser movimientos en bolsa no tiene mucho sentido
+```
+
+
+
+```{r}
+# GARCH?
+#ACF y PACF
+ggtsdisplay(residuos_arima^2)  # los residuos al cuadrado nos muestran una medida de volatilidad. Aqui vemos que no son ruido blanco en el modelo para la media
+
+#Ljung-Box Test 
+Box.test(residuos_arima^2,lag=10,  type="Lj") #no es ruido blanco entonces es un modelo garch
+Box.test(residuos_arima^2,lag=20,  type="Lj")
+Box.test(residuos_arima^2,lag=40,  type="Lj")
+
+
+```
+
+## Modelo completo
+
+```{r}
+#GARCH(1,1)
+
+#no tiene sentido el modelo garch 01, el arma es el modelo para la media y el garch es el modelo para la varianza.
+
+modelo_garch=garchFit(~1+arma(0,4)+garch(1,1),data=dRentCont,trace=F) # Fit an GARCH(1,1) model
+summary(modelo_garch)
+
+#los 3 primeros box test con los residuos para la media y los sigueintes 3 son para la varianza
+```
+
+
+```{r}
+plot(modelo_garch, which = 2) #volatilidad estimada diaria. Aca observamos como el covid afecata
+plot(modelo_garch, which = 13) #observamos como las colas son mas anchas que una normal
+```
+
+
+```{r}
+#GARCH(1,1)
+modelo_garch_t=garchFit(~1+arma(0,4)+garch(1,1),data=dRentCont,trace=F,cond.dist="std") # Fit an GARCH(1,1) model
+summary(modelo_garch_t)
+```
+
+
+
+```{r}
+plot(modelo_garch_t, which = 2)
+plot(modelo_garch_t, which = 13) #este es el fecto de hacer un garcg con t students
+```
+
+
+```{r}
+predict(modelo_garch_t,n.ahead=60,plot=TRUE,conf=.9,nx=250) # plot 250 data with 90% confidence
+```
+
+```{r}
+dia="/2020-09-08" #coge todos los datoaas de rentabilidad hasta este dia
+modelo_garch_t=garchFit(~1+arma(0,4)+garch(1,1),data=dRentCont[dia],trace=F,cond.dist="std")
+summary(modelo_garch_t)
+pred <- predict(modelo_garch_t,n.ahead=1)
+sign(pred$meanForecast) #predice el signo al dia siguiente
+dRentCont["2020-09-09"] #dime el dia siguiente. El signo me dice que es positiva
+```
+

@@ -1,0 +1,89 @@
+---
+title: 'Caso Práctico 06: BMW vs Volkswagen'
+subtitle: "Master en Data Science para Finanzas: Predicción"
+date: "\\textcopyright Ricardo A. Queralt @Cunef - V1.03"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+---
+
+# Modelo Garch
+
+```{r libraries}
+library(tidyverse)
+library(quantmod)
+library(forecast)
+library(vars)
+library(patchwork)
+```
+
+
+## Datos yahoo
+```{r}
+
+#get data from yahoo
+
+BMW=getSymbols("BMW.DE",env=NULL, from="1997-01-01",to="2020-10-31")
+VOL=getSymbols("VOW.DE",env=NULL,from="1997-01-01",to="2020-10-31")
+
+# Generar rentabilidad mensual
+rBMW=monthlyReturn(BMW[,6])
+rVOL=monthlyReturn(VOL[,6])
+
+```
+```{r}
+autoplot(BMW[,6])/autoplot(VOL[,6]) #grafico de las series y sus rentabilidades
+autoplot(rBMW)/autoplot(rVOL) #observar desde dnde hasta dnde van laas rentabilidades
+```
+
+
+```{r}
+#generar vector
+vY=cbind(rBMW["2009-01-01/"],rVOL["2009-01-01/"])
+colnames(vY)=c("BMW","VOL") #me quedo con las dos rentabilidad apartir del 2009
+vY=na.omit(vY)
+```
+
+
+```{r}
+#Seleccionar modelo
+VARselect(vY) # algunos modelos dicen el 3 y otros el 1
+```
+
+```{r}
+#estimar
+model.var=VAR(vY,p=3) #debemos trabajar con los dos modelos
+summary(model.var)
+```
+
+Solo salen significativas en BMW la constante y el retardo dos de volkwagen, lo demas es no significativo.
+
+Cuando cogemos el modelo para bolkwagen el 3 es significativo. Esto suscede mucho en bolsa por ej xq cada tres meses tneemos lo datos contables y el cierre de los futuros. La alternativa seria crear el modelo sin los no signifciatovs
+
+```{r}
+#estimar
+model.var1=VAR(vY,p=1)
+summary(model.var1)
+```
+
+
+Ninguno es significativ con uno
+```{r}
+#causalidad de granger
+causality(model.var) #nos dice que bmw y vow tienen correlacion causal contemporaneo entonces en este caso una funcion de transferencia es mas adecuada. Es decir no tiene sentido utilizar un VAR en este caso.
+causality(model.var1)
+```
+
+```{r}
+#respuesta al impulso
+model.ri=irf(model.var)
+model.ri
+plot(model.ri)
+
+##prediccion
+predict(model.var, n.ahead = 8, ci = 0.95)
+```
+
+
+

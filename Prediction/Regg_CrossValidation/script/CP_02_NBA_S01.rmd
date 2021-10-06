@@ -1,0 +1,413 @@
+---
+title: "CP_02_v01_NBA"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+    toc_depth: 2
+    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<!--AQUI EL ESTILO CSS-->
+
+```{css, echo = FALSE}
+```
+
+<!--FIN DEL ESTILO CSS-->
+
+
+[//]: Comentario
+
+
+# Libraries and functions
+
+```{r Libraries and functions, message=FALSE, warning=FALSE}
+library(here) # Comentar
+library(tidyverse)
+library(janitor) # Clean names
+library(magrittr) # Pipe operators
+library(leaps) # Model selection
+library(caret) # Cross Validation
+library(bestglm) # Cross Validation
+library(glmnet) # Regularization
+
+```
+
+
+
+# Read Data
+
+```{r Read Data}
+raw_data <-  read.csv("nba.csv")
+colnames(raw_data)
+```
+
+
+# Variables Names
+
+```{r Clean Names}
+raw_data %<>% clean_names()
+colnames(raw_data)
+```
+
+
+```{r Data Wranling}
+# delete duplicate
+# Remove duplicate rows of the dataframe
+raw_data %<>% distinct(player,.keep_all= TRUE)
+
+# delete NA's
+raw_data %<>% drop_na()
+
+```
+
+
+
+```{r Log salary}
+
+log_data <- raw_data %>% mutate(salary=log(salary))
+
+vars <- c("player","nba_country","tm")
+```
+
+# Model Selection
+
+```{r Regsubsets, fig.height = 10, fig.width =10, fig.align = "center"}
+
+nba <- log_data %>% select_at(vars(-vars))
+
+set.seed(1234)
+num_data <- nrow(nba)
+num_data_test <- 10
+train=sample(num_data ,num_data-num_data_test)
+
+
+data_train <- nba[train,]
+data_test  <-  nba[-train,]
+
+model_select <- regsubsets(salary~. , data =data_train, method = "seqrep",nvmax=24)
+
+model_select_summary <- summary(model_select)
+
+data.frame(
+  Adj.R2 = (model_select_summary$adjr2),
+  CP = (model_select_summary$cp),
+  BIC = (model_select_summary$bic)
+)
+
+model_select_summary$outmat
+
+plot(model_select, scale = "bic", main = "BIC")
+
+data.frame(
+  Adj.R2 = which.max(model_select_summary$adjr2),
+  CP = which.min(model_select_summary$cp),
+  BIC = which.min(model_select_summary$bic)
+)
+coef(model_select,which.max(model_select_summary$adjr2))
+coef(model_select,which.min(model_select_summary$cp))
+coef(model_select,which.min(model_select_summary$bic))
+```
+**“All models are wrong, some models are useful”, Box, G.E.P**
+
+
+```{r}
+
+# adjR2 model
+
+nba_r2 <- lm(salary~ nba_draft_number+age+g+mp+per+ts+f_tr+trb+ast+tov+usg+dws+ws_48+dbpm , data =data_train)
+summary(nba_r2)
+# CP model
+
+nba_cp <- lm(salary~ nba_draft_number+age+mp+per+ts+f_tr+trb+ast+tov+usg+dws+ws_48+dbpm, data =data_train)
+summary(nba_cp)
+
+# BIC model
+
+nba_bic <- lm(salary~ nba_draft_number+age+mp+drb, data =data_train)
+summary(nba_bic)
+
+```
+
+
+```{r}
+
+# Prediction
+
+# adjR2
+predict_r2 <- predict(nba_r2,newdata = data_test)
+cbind(predict_r2,data_test$salary)
+exp(cbind(predict_r2,data_test$salary))
+mean((data_test$salary-predict_r2)^2)
+sqrt(mean((data_test$salary-predict_r2)^2))
+
+# CP
+predict_cp <- predict(nba_cp,newdata = data_test)
+cbind(predict_cp,data_test$salary)
+exp(cbind(predict_cp,data_test$salary))
+mean((data_test$salary-predict_cp)^2)
+sqrt(mean((data_test$salary-predict_cp)^2))
+
+# BIC
+predict_bic <- predict(nba_bic,newdata = data_test)
+cbind(predict_bic,data_test$salary)
+exp(cbind(predict_bic,data_test$salary))
+mean((data_test$salary-predict_bic)^2)
+sqrt(mean((data_test$salary-predict_bic)^2))
+
+```
+
+
+## Solution: Cross Validation
+
+
+### Using Caret
+
+caret llama a las librerias de los modelos. Esta preparada para hacer el CV de forma rapida y eficaz
+
+```{r Cross Validation}
+
+
+# get_model_formula(), allowing to access easily the formula of the models returned by the function regsubsets(). Copy and paste the following code in your R console:
+# id: model id
+# object: regsubsets object
+# data: data used to fit regsubsets
+# outcome: outcome variable
+
+#lo unico que le dejo decir es el id y el ebjeto
+get_model_formula <- function(id, object, outcome){
+  # get models data
+  models <- summary(object)$which[id,-1]
+  # Get model predictors
+  predictors <- names(which(models == TRUE))
+  predictors <- paste(predictors, collapse = "+")
+  # Build model formula
+  as.formula(paste0(outcome, "~", predictors))
+}
+
+
+
+# get_cv_error(), to get the cross-validation (CV) error for a given model:
+get_cv_error <- function(model.formula, data, kfold=5, setseed=1){
+  set.seed(setseed)
+  train.control <- trainControl(method = "cv",
+                                number = kfold) #trainControl es una funcion de caret
+  cv <- train(model.formula, 
+              data = data, method = "lm",
+              trControl = train.control)
+  cv$results$RMSE
+}
+
+```
+
+
+
+```{r}
+# Compute cross-validation error
+
+model.ids <- c(14,13,4)
+
+#mapeame para los tres modelos la formula y una vez que lo tenga haga el CV y luego los errores
+cv.errors <-  map(model.ids, get_model_formula,model_select , "salary") %>%
+  map(get_cv_error, data = nba,kfold=10,setseed=1234) %>%
+  unlist()
+cv.errors
+
+# Select the model that minimize the CV error
+which.min(cv.errors)
+coef(model_select, model.ids[which.min(cv.errors)])
+# all sample
+summary(lm(get_model_formula (model.ids[which.min(cv.errors)], model_select, "salary"),data=nba))
+
+#deberiamos quedarnos con el tercer modelo para predecir xq tiene el menor error
+```
+
+
+
+
+
+
+### bestglm
+
+Esta libreria lo hace todo de una vez, no se tienen que hacer bucles para pedirle el modelo.
+
+Primero metems una matriz Xy, criterio de informacion "BIC", 
+
+bestglm(Xy, family = gaussian, IC = "BIC", t = "default",
+     CVArgs = "default", qLevel = 0.99, TopModels = 5,
+     method = "exhaustive", intercept = TRUE, weights = NULL,
+     nvmax = "default", RequireFullEnumerationQ = FALSE, ...)
+     
+```{r bestglm}
+library(bestglm)
+# bestglm dataframe Xy
+nba %>% dplyr::select(-salary,salary) -> nba_bestglm
+
+#quitame la primera columna y metemela al final
+
+# 10 kfolds
+model_bestglm <-
+    bestglm(Xy = nba_bestglm,
+            family = gaussian,
+            IC = "CV",  
+             method = "exhaustive",
+            CVArgs=list(Method="HTF", K=10, REP=1)) #repiteme el kfolds una vez
+
+#metodo HTF es un metodo para hacer validacion cruzada
+#metodo exhaustive esta buscando la mejor iteracion para buscar el modelo. Es un meotodo recursivo
+
+model_bestglm$BestModel
+
+summary(model_bestglm$BestModel)
+
+# LOOCV
+
+model_bestglm2 <-
+    bestglm(Xy = nba_bestglm,
+            family = gaussian,
+            IC="LOOCV", 
+            t=10,
+             method = "exhaustive")
+
+model_bestglm2$BestModel
+
+summary(model_bestglm2$BestModel)
+
+```
+     
+Xtboots nos ayuda a unir modelos
+
+Da mas seguridad el kfolds xq estamos prediciendo un cunjunto mayor de datos y tenemos menos muestra para seleccionarlos.
+
+Al final hay que usar los dos
+
+# Regularization
+
+
+## Computing elastic net regession
+
+The elastic net regression can be easily computed using the caret workflow, which invokes the glmnet package.
+
+We use caret to automatically select the best tuning parameters alpha and lambda. The caret packages tests a range of possible alpha and lambda values, then selects the best values for lambda and alpha, resulting to a final model that is an elastic net model.
+
+Here, we’ll test the combination of 10 different values for alpha and lambda. This is specified using the option tuneLength.
+
+The best alpha and lambda values are those values that minimize the cross-validation error 
+
+
+
+
+
+
+```{r Regularization}
+#method significa que libreria uso
+#tuneLength es q longitud de paso le paso al alfa.
+
+# Build the model 
+set.seed(12134)
+model <- train(
+  salary ~., data = nba, method = "glmnet",
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+)
+# Best tuning parameter
+model$bestTune #elmejor alfa. (lasso en este caso al ser uno)
+
+coef(model$finalModel, model$bestTune$lambda) #lamba correspondiente
+
+```
+
+### Train, Validation and Test
+
+
+
+
+```{r Train, Validation and Test}
+#hacemos el proceso manual
+
+
+set.seed(1234)
+
+#seleccionamos la muestra de training
+training.samples <- nba$salary %>%
+  createDataPartition(p = 0.8, list = FALSE)
+train.data  <- nba[training.samples, ]
+test.data <- nba[-training.samples, ]
+
+
+
+#Using caret package
+
+#Setup a grid range of lambda values:
+lambda <- 10^seq(-3, 3, length = 100) #posibles valores de lamba se eleva a 10 xq para lamba utilizamos logaritmo
+#Compute ridge regression:
+# Build the model
+set.seed(45678)
+ridge <- train(
+  salary ~., data = train.data, method = "glmnet",
+  trControl = trainControl("cv", number = 10), #utilice para entrenar k folds de 10
+  tuneGrid = expand.grid(alpha = 0, lambda = lambda) #le estamos diciendo el grid que entrene con un alpha 0 y lamba los valores de lamba creados mas arriba
+  )
+
+# Model coefficients
+coef(ridge$finalModel, ridge$bestTune$lambda)
+# Make predictions
+predictions <- ridge %>% predict(test.data)
+# Model prediction performance
+data.frame(
+  RMSE = RMSE(predictions, test.data$salary),
+  Rsquare = R2(predictions, test.data$salary)
+) #guardo los datos en un dataframe
+
+
+#Compute lasso regression:
+# Build the model
+set.seed(1234)
+lasso <- train(
+  salary ~., data = train.data, method = "glmnet",
+  trControl = trainControl("cv", number = 10),
+  tuneGrid = expand.grid(alpha = 1, lambda = lambda)
+  )
+# Model coefficients
+coef(lasso$finalModel, lasso$bestTune$lambda)
+# Make predictions
+predictions <- lasso %>% predict(test.data)
+# Model prediction performance
+data.frame(
+  RMSE = RMSE(predictions, test.data$salary),
+  Rsquare = R2(predictions, test.data$salary)
+) #guardo los datos en un dataframe
+
+#Elastic net regression:
+# Build the model
+set.seed(45678)
+elastic <- train(
+  salary ~., data = train.data, method = "glmnet",
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+  )
+# Model coefficients
+coef(elastic$finalModel, elastic$bestTune$lambda)
+# Make predictions
+predictions <- elastic %>% predict(test.data)
+# Model prediction performance
+data.frame(
+  RMSE = RMSE(predictions, test.data$salary),
+  Rsquare = R2(predictions, test.data$salary)
+) #guardo los datos en un dataframe
+
+#Comparing models performance:
+#The performance of the different models - ridge, lasso and elastic net - can be easily compared using caret. The best model is defined as the one that minimizes the prediction error.
+
+models <- list(ridge = ridge, lasso = lasso, elastic = elastic)
+resamples(models) %>% summary( metric = "RMSE") 
+
+
+
+```
+
+

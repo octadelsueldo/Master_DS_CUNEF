@@ -1,0 +1,128 @@
+---
+title: 'Caso Práctico 06: BMW vs Volkswagen'
+subtitle: "Master en Data Science para Finanzas: Predicción"
+date: "\\textcopyright Ricardo A. Queralt @Cunef - V1.03"
+output:
+  html_notebook:
+    highlight: kate
+    toc: yes
+---
+
+```{r}
+library(tseries) #permite manipular
+library(ggplot2)
+library(urca)
+```
+
+```{r}
+start = "2011-01-03"
+  end = "2020-10-30"
+quote = "AdjClose"
+
+VolksWagen <- get.hist.quote(instrument = "VOW.DE", start, end, quote, compression = "d") # de la libreria tseries
+VolksWagen <-na.omit(VolksWagen)
+
+BMW <- get.hist.quote(instrument = "BMW.DE", start, end, quote, compression = "d")
+BMW<-na.omit(BMW)
+series <- cbind(VolksWagen, BMW) #se unen las series
+```
+
+
+
+```{r}
+# test for nonstationarity levels
+
+# test dickey fuller aumentado, le ponemos 10 retardos para AIC y q incluya tendencia
+summary(ur.df(VolksWagen,
+      lags = 10, 
+      selectlags = "AIC", 
+      type = "trend"))
+# el modelo dice zdif es la diferencia de la variable , una tendencia lineal y una retardada
+# los t hay que comprarlos los con los critical values. 
+
+# la hipotesis de raiz unitaria '' no estoy seguro'
+
+summary(ur.df(BMW,
+      lags = 10, 
+      selectlags = "AIC", 
+      type = "trend"))
+
+# por lo tanto hay raiz unitaria
+```
+
+
+
+```{r}
+# test for nonstationarity 
+
+# lo hacemos con una diferencia
+# al ser menor decimos que es estacionaria ya que estamos en H1
+summary(ur.df(diff(VolksWagen),
+      lags = 10, 
+      selectlags = "AIC"))
+
+
+summary(ur.df(diff(BMW),
+      lags = 10, 
+      selectlags = "AIC"))
+
+# decimos aqui que son integradas de orden uno.
+```
+
+
+```{r}
+# observamos aqui si los residuos son integrados de orden 0
+coint_eq = lm(Adjusted.BMW~Adjusted.VolksWagen,data=series)
+summary(coint_eq)
+
+# aca observamos la relacion de cointegrqcion. Al ser 0.34 la relacion de cointegrtacion. Esta regresion solo se puede interpretar si los errores son estacionarios. Fijarios q el eerror es alto 0.55 indica el precio de equilibrio que hayentre bbv y vol 
+```
+
+```{r}
+plot.ts(coint_eq$residuals)
+# graficamos los residuos y parecen no estacionarios
+```
+
+
+```{r}
+error_coint <- ur.df(coint_eq$residuals, lags = 1, type = "none")
+summary(error_coint)
+# hacemos un test dickey fuller con un retardo y miramos el resultado.
+
+# nos sale -2.0228 al 5% decimos que es ruido blanco. Al uno no es estacionaria por lo tanto desde un punto de vista estadistico podemos decir q el grafico anteiorr es estacionario
+```
+
+
+```{r}
+BMW.d <- diff(BMW)[-1] #diferencia de las dos. Le quita el na del final
+VolksWagen.d <- diff(VolksWagen)[-1]
+error.ecm1 <- coint_eq$residuals[-1:-2] #correccion de errores con los residuos d
+BMW.dl  <- diff(BMW[-(length(BMW) - 1)]) #las variables cointegradas. Diferencia de la serie y quitarle una retardada
+VolksWagen.dl <- diff(VolksWagen[-(length(VolksWagen) - 1)])
+
+# suponemos que estan cointegradas y vemos el modelo de correccion de errores.
+
+# 
+
+```
+
+
+```{r}
+# bmw en funcion de las dos variables. Sale significativa volkwagen por lo tanto nos dice que el error. Los cambios del precio de BMW dependen de los cambios de antes y otras cosas y lo unico que es significativo es volkswagen. 
+
+# Aqui el r2 no llega al 1% 
+
+ecm_model <- lm(BMW.d ~ error.ecm1 +BMW.dl + VolksWagen.dl)
+summary(ecm_model)
+```
+
+
+```{r}
+
+# si hacemos el modelo para volksagen observamos que no tiene nadaq que sea significativo.
+# entonces no estan cointegradas.
+# el modelo entre una y otra es un modelo de diferencias. Aqui hay que hacer una funcion de transferencia o arimax haciendo la diferencia de IBM con la diferencia de volkswagen
+
+ecm_model1 <- lm(VolksWagen.d ~ error.ecm1 +BMW.dl + VolksWagen.dl)
+summary(ecm_model1)
+```
