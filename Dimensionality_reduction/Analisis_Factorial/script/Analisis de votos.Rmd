@@ -1,0 +1,416 @@
+---
+title: "Análisis Factorial de Correspondencias"
+author: "Hugo César Octavio del Sueldo"
+date: "11/11/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.align = 'center', out.width = '85%', echo = TRUE)
+```
+
+## Introduccion
+
+Pretendemos conocer la relacion o asociacion existente entre los partidos politicos y las `clases de trabajadores` separados de la siguinte forma:
+
+- Trabaja (Trabajador por cuenta ajena)
+- Domestico
+- Parado
+- Estudiante
+- Jubilado.
+
+Los `partidos politicos` a analizar seran los siguientes: 
+
+- PP
+- PSOE
+- UP
+- Cs
+- Resto
+
+
+Comenzaremos con la carga del fichero y de las librerias que vamos a utilizar
+
+```{r librerias, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(FactoMineR)
+library(factoextra)
+library(graphics)
+```
+
+
+```{r carga_fichero}
+data <- read.csv("AFC-votos.csv", sep =';', row.names =  'X')
+data
+data <- as.table(as.matrix(data))
+```
+De la inspeccion visual del fichero podemos observar que los jubilados tienden mayoritariamente a elegir el partido PP. A su vez, los empleados domesticos suelen elegir en mayor proporcion al partido PSOE. Por otro lado, los estudiantes apoyan mucho mas a otro partidos por fuera de PP, PSOE, UP y Cs.
+
+### Exploratory data analysis
+
+## Plots
+
+Vamos a realizar graficos para poder interpretar mejor los datos exibidos arriba. Para esto utilizaremos balloonplot que nos permite visualizar muy bien estas relaciones.
+
+```{r mosaicplot, fig.cap = 'Partidos politicos y sus votantes en un mosaicplot', echo=FALSE, message=FALSE, eval=FALSE}
+#library("graphics")
+
+mosaicplot(data,
+           shade = TRUE,
+           las=1,
+           main = "Partidos politicos y sus votantes")
+
+#el argumento shade se emplea para dar color al gráfico;
+#el argumento las=1 ofrece etiquetas horizontales;
+#la superficie del rectángulo refleja su importancia relativa;
+#el color azul indica que el valor observado es mayor que el esperado para datos aleatorios;
+#el color rojo indica que el valor esperado es menor que el esperado para datos aleatorios.
+
+
+#Aqui podemos observar que el personal domestico tiene mucha importancia para PSOE, a su vez, observamos que los trabajadores por cuenta ajena no estan muy relacionados ningun partido politico en concreto. Por el tamaño del rectangulo, analizamos que los estudiantes tienen importancia para el resto de partidos politicos. Por ultimo los Jubilados con los votantes mas importantes para el PP.
+```
+
+
+ 
+```{r baloonplot, fig.cap='Partidos Politicos y sus votantes en un Baloonplot', echo=FALSE, message=FALSE, warning=FALSE, error=FALSE}
+gplots::balloonplot
+require(gplots)
+balloonplot(t(data),
+            main ="Películas",
+            xlab ="",
+            ylab="",
+            label = FALSE,
+            show.margins = FALSE)
+```
+Con el baloonplot podemos observar, por el tamaño de los circulos, la importancia relativa de los tipos de trabajadores con los partidos politicos. Asi vemos que Jubilados tienen mucha relacion con el partido PP, Personal Domestico se lo puede asociar con PSOE y los estudiantes con el Resto de partidos politicos. A su vez, observamos que los trabajadores por cuenta ajena no estan muy relacionados ningun partido politico en concreto
+
+### Contraste de independencia Chi cuadrado
+
+El contraste de independencia entre categorías se efectúa mediante la prueba `Chi cuadrado`, fácilmente implementada a partir de la función chisq.test()
+
+
+```{r chisq}
+chisq=chisq.test(data)
+chisq
+```
+
+Al ser el p-value menor a 0.05 podemos concluir que se rechaza la hipotesis de independencia que plantea la prueba y confirmar la existencia de alguna relación entre filas y columnas.
+
+### Análisis de correspondencias
+
+Una vez observada la existencia de relaciones entre partidos politicos y sus votantes, el análisis de correspondencias nos permitirá identificar cuáles son de una manera sencilla en un espacio de dos dimensiones. La función CA() del paquete *FactoMineR* simplifica sobremanera la tarea del cálculo de las coordenadas de filas y columnas.
+
+```{r ANC, message=FALSE}
+votantes.afc=CA(data, graph=FALSE)
+```
+
+Mediante la función summary.CA() podemos acceder al resumen del análisis.
+
+- objeto: uno de la clase CA
+- nb.dec: número de decimales en pantalla
+- nbelements: número de variables de fila o columna que se escribirán. Para tener todos los elementos, emplearemos nbelements = Inf
+- ncp: número de dimensiones del resultado final.
+- file: nombre de archivo opcional para la exportación de los resúmenes
+- Observamos el resumen de los votantes para las dos primeras dimensiones
+
+```{r summary_ac}
+#X : data frame o tabla (tabla de contingencia)
+#ncp : número de dimensiones del resultado final.
+#graph : valor lógico. Si TRUE se muestra el gráfico.
+summary(votantes.afc, nb.dec = 2, ncp = 2)
+```
+
+El resultado de la función summary() presenta el estadístico chi cuadrado y tres tablas adicionales:
+
+Tabla 1 - Autovalores (eigenvalues): varianzas y porcentaje de la varianza explicada por cada una de las dimensiones de la solución.
+
+Tabla 2 - Coordenadas, contribución y el cos2 o calidad de la representación (en tanto por uno) de las diez primeras variables de fila activas de las dimensiones 1 y 2.
+
+Tabla 3 - Coordenadas, contribución y el cos2 o calidad de la representación (en tanto por uno) de las diez primeras variables columna activas de las dimensiones 1 y 2.
+
+Nótese que si quisiéramos exportar la salida deberíamos emplear la orden file=“misalida.txt” dentro de la función summary
+
+### Interpretación del análisis de correspondencias
+
+#### Nivel de asociación entre filas y columnas
+
+La primera etapa del ANACOR pasa por conocer si se da o no una asociación significativa entre filas y columnas; para ello, podemos emplear dos métodos alternativos:
+
+ 1. La traza;
+ 2. El estadístico chi cuadrado
+La traza, o inercia total de la tabla, es la suma de todos los autovalores; su raíz cuadrada puede interpretarse como el coeficiente de correlación entre filas y columnas; se calculará como sigue:
+
+```{r}
+autov = get_eigenvalue(votantes.afc)
+traza = sum(autov[,1]) 
+cor.coef = sqrt(traza)
+cor.coef
+```
+
+En general, como regla empírica, suele emplearse 0.2 como umbral por encima del cual la correlación puede considerarse como importante. En nuestro caso, el valor alcanzado de 0.38 señalar una asociación bastante debil cercana al umbral. 
+
+Más adecuado es el empleo del estadístico chi cuadrado mostrado previamente en el resumen ofrecido en summary.CA() , que con un valor en nuestro caso de 1704 con un nivel de significación de 0 nos lleva a rechazar la hipótesis de independencia de filas y columnas, permitiendo continuar con el análisis.
+
+### Autovalores y gráfico de sedimentación
+
+Las dimensiones con las que finalmente debemos trabajar en la solución se determinará a partir del examen de los autovalores. Dado que la traza, como señalamos previamente, es la suma total de los autovalores, para un eje determinado la relación del valor propio respecto de la traza proporciona lo que denominamos el porcentaje de varianza (o inercia total, o chi cuadrado) explicada por el eje.
+
+La función get_eigenvalue() de factoextra ofrece la proporción de varianza explicada por las distintas dimensiones o ejes.
+
+```{r}
+autoval = get_eigenvalue(votantes.afc)
+head(round(autoval, 2))
+```
+
+En nuestro caso, dos únicas dimensiones o ejes permiten explicar el 100% de la varianza; siempre los autovalores (y por tanto los ejes asociados) vendrán impresos en orden decreciente de poder explicativo. No existe desgraciadamente una norma para determinar el número de dimensiones a retener; dependerá de la situación y del analista.
+
+Una posibilidad alternativa es emplear el screeplot o gráfico de sedimentación, del que podemos hacer uso en el paquete factoextra a través de la función *fviz_screeplot()*:
+
+```{r grafico_sedimentacion, fig.cap='Grafico de sedimentacion',echo=FALSE}
+fviz_screeplot(votantes.afc, addlabels=TRUE, hjust = -0.3)+
+  ggtitle("Gráfico de sedimentación") +
+  labs(x="Dimensiones",y="Porcentaje de varianza explicada")
+```
+
+La idea con el grafico de sedimentacion es elegir en base a la regla del angulo o del codo. El criterio es quedarse con un numero de componentes que excluya los asociados a valores pequenos y aproximadamente del mismo tamano. La regla consiste en seleccionar todas las componentes hasta el primer codo (sin incluirlo).
+
+En nuestro caso, eligiriamos hasta la segunda componente principal. Aqui la primera CP representa 64,6% de la variabilidad total de las variables y la segunda componente el 24.5%. Es decir, en total estamos explicando el 89.1% de la variabilidad total solo con dos dimensiones.
+
+### Gráfico de dispersión del análisis de correspondencias entre filas y columnas.
+
+La función plot.CA() de FactoMineR se puede emplear para representar las coordenadas de filas y columnas en el espacio de dos dimensiones. Su forma simplificada sería la siguiente:
+
+```{r plotCA, fig.cap='Grafico de disperson del AC entre filas y columnas', echo=FALSE}
+plot.CA(votantes.afc, axes = c(1,2), col.row = "blue", col.col = "red")
+
+# votantes.afc es el objeto de clase CA que pretendemos representar
+# axes es el vector numérico de longitud 2 que especifica las dimensiones que pretendemos representar
+# col.row, col.col señalan los colores en los que queremos representar filas y columnas. Las filas en azul y las columnas en rojo
+```
+
+A traves de este grafico, si consideramos las filas, podemos analizar que Estudiantes y personal Domestico estan un poco en tierra de nadie al no estar cerca de ninguno de los ejes. Es decir, que no se representa definidamente ni por la dimension 1, ni por la dimension 2. Por otro lado, podemos identificar que los Jubilados estan mejor representados por la dimension 1. A su vez, Los parados y Trabajadores por cuenta propia se los podria identificar mejor por la dimension 2
+
+Por otro lado, por las columnas, podemos observar que UP y Resto de partidos politicos no se ven muy definidos por ninguna de las dimensiones elegidas. Al mismo tiempo, PP y PSOE estan mas asociados a la dimension 1 mientras que Cs a la dimension 2.
+
+
+Este tipo de representación se denomina simétrica; las distancias entre los elementos representados (de filas o de columnas) dan idea de su similaridad/disimilaridad, de forma que puntos cercanos indican relaciones más fuertes que puntos lejanos. Es importante indicar que la mayor o menor cercanía entre puntos de filas y de columnas no puede interpretarse del mismo modo; para conocer la asociación entre filas y columnas debe acudirse a la representación asimétrica, en la que las filas se representan en el espacio de las columnas y viceversa.
+
+
+### Contribución de filas y columnas
+
+Necesitamos conocer qué filas (y columnas) son las que más y mejor definen las dimensiones o ejes que hemos retenido en el análisis. La función get_ca_row() ofrece un objeto tipo lista que contiene las coordenadas, el cos2, la contribución y la inercia de las variables de fila.
+```{r filas, message=FALSE}
+filas=get_ca_row(votantes.afc)
+```
+
+#### Coordenadas de las filas
+
+Para obtener las coordenadas de las filas en cada uno de los ejes empleamos la siguiente orden:
+
+```{r coordenadas_filas}
+head(filas$coord)
+```
+
+Podemos visualizar la posición de las filas en el espacio de los ejes del siguiente modo, empleando el paquete factoextra:
+
+```{r graph_coord_filas, fig.cap='Grafico de coordenadas de las filas', echo=FALSE}
+# Gráfico por defecto
+fviz_ca_row(votantes.afc)
+```
+
+#### Contribución de las filas a cada dimensión
+
+Las obtenemos con la orden
+
+```{r contri_filas}
+head(filas$contrib)
+```
+
+Las filas con mayor peso / mayor indicador más contribuyen a la explicación del eje; en nuestro caso, y tal y como se deduce del gráfico anterior, Estudiantes y Jubilados, con un 43% y 31%, son las que más contribuyen a la explicación del eje 1. Mientras que los Parados seguidos por los estudiantes son los que mas contribuyen a la explicacion de la dimension 2
+
+Podemos visualizar esta contribución mediante la función corrplot de la librería del mismo nombre:
+
+```{r filas_corr_contr, fig.cap='Grafico de correlacion de la contribucion de las filas con las dimensiones', echo=FALSE}
+library(corrplot)
+corrplot(filas$contrib, is.corr=FALSE)
+```
+
+Podemos asimismo construir un gráfico de barras con la orden fviz_contrib() de factoextra:
+
+```{r contr_filas_primdim, fig.cap='Grafico de barras de la contribucion de las filas con las dimension 1', echo=FALSE}
+# Contribución de las filas a la primera dimensión
+fviz_contrib(votantes.afc, choice = "row", axes = 1)+
+        ggtitle("Contribución de las filas a la 1ª dimensión")+
+        labs(x="Filas",y="Porcentaje de contribución") 
+```
+
+```{r contri_filas_segdim, fig.cap='Grafico de barras de la contribucion de las filas con la dimension 2', echo=FALSE}
+# Contribución de las filas a la segunda dimensión
+fviz_contrib(votantes.afc, choice = "row", axes = 2) +
+        ggtitle("Contribución de las filas a la 2ª dimensión")+
+        labs(x="Filas",y="Porcentaje de contribución")
+```
+
+```{r contr_filas_ambasdim, fig.cap='Grafico de barras de la contribucion de las filas con las dos dimensiones', echo=FALSE}
+# Contribución total de las filas a las dos dimensiones
+fviz_contrib(votantes.afc, choice = "row", axes = 1:2) +
+        ggtitle("Contribución de las filas a las dos dimensiones")+
+        labs(x="Filas",y="Porcentaje de contribución")
+```
+Aqui podemos apreciar que no existe independencia entre las varibles ya que en ese caso todas las dimensiones estarian sobre la linea punteada de color rojo. Aqui vemos que los estudiantes concentran la mayor contribucion sobre las dos dimensiones seguidas mas abajo por los jubilados.
+
+### Calidad de la representación de las filas: el Cos2
+
+El cos2 o cuadrado del coseno o cuadrado de las correlaciones es la principal medida de la calidad de la representación alcanzada; mide la asociación entre filas (o columnas) y un determinado eje.
+Lo obtenemos del siguiente modo:
+
+```{r}
+head(filas$cos2)
+```
+
+Como podemos observar, Jubilados y Estudiantes están muy asociadas a la primera dimensión, como Parados lo están a la segunda. La suma de los cos2 de cada punto de fila (o columna) a lo largo de las distintas dimensiones es 1. La calidad de la representación de un opunto de fila (o columna) en un espacio de n dimensiones viene dada por la suma de los cos2 de ese punto de fila a lo largo de las n dimensiones; es evidente que, al elegir un total de 2 dimensiones en nuestro caso, la representación no es perfecta.
+
+Podemos asimismo emplear corrplot() para visualizar el cos2, así como hacer un gráfico de barras con fviz_cos2() de factoextra.
+
+
+```{r cos2_filas_corplot, fig.cap='Correlaciones del cos2 de las filas con las dos dimensiones', echo=FALSE}
+corrplot(filas$cos2, is.corr=FALSE)
+```
+
+```{r cos2_filas_ambasdim, fig.cap='Grafico de barras del cos2 de las filas con las dos dimensiones', echo=FALSE}
+# Cos2 de las filas en las dos dimensiones
+fviz_cos2(votantes.afc, choice = "row", axes = 1:2)+
+        ggtitle("Cos2 de las dos dimensiones")+
+        labs(y="Cos2 - calidad de la representación")
+```
+Aqui podemos apreciar que la calidad de la representacion de los estudiantes es casi maxima en las dos primeras dimensiones ya que esta variable se ve explicada casi en su totalidad por estas dos dimensiones.
+
+En el caso del resto de variables no se llega al maximo porq su explicacion esta algo mas dispersa entre el resto de componentes principales.
+
+#### Coordenadas de las columnas
+
+```{r columnas, message=FALSE}
+columnas=get_ca_col(votantes.afc)
+```
+
+
+```{r}
+head(columnas$coord)
+```
+
+
+```{r graph_coord_col, fig.cap='Coordenadas de las columnas en las dos dimensiones', echo=FALSE}
+# Gráfico por defecto
+fviz_ca_col(votantes.afc)
+```
+
+#### Contribución de las columnas a cada dimensión
+
+```{r}
+head(columnas$contrib)
+```
+
+De la tabla anterior podemos observar que UP y el Resto de partidos politicos son las que mas contribuyen a la dimension 2. Por otro lado, el Resto de partidos politicos, seguido por UP, PP y PSOE contribuyen a la dimension 1 pero ninguna con gran diferenciacion. 
+
+Podemos visualizar esta contribución mediante la función corrplot de la librería del mismo nombre:
+
+```{r contr_colum_dimen, fig.cap='Correlaciones de las columnas en las dimensiones', echo=FALSE}
+library(corrplot)
+corrplot(columnas$contrib, is.corr=FALSE)
+```
+
+```{r contr_col_primdim, fig.cap='Contribuciones de las columnas en la dimension uno', echo=FALSE}
+# Contribución de las columnas a la primera dimensión
+fviz_contrib(votantes.afc, choice = "col", axes = 1)+
+        ggtitle("Contribución de las columnas a la 1ª dimensión")+
+        labs(x="Columnas",y="Porcentaje de contribución") 
+```
+```{r contr_col_segdim, fig.cap='Contribuciones de las columnas en la dimension 2', echo=FALSE}
+# Contribución de las columnas a la segunda dimensión
+fviz_contrib(votantes.afc, choice = "col", axes = 2)+
+        ggtitle("Contribución de las columnas a la 2ª dimensión")+
+        labs(x="Columnas",y="Porcentaje de contribución") 
+```
+
+```{r contr_col_ambasdim, fig.cap='Contribuciones de las columnas en las dos dimensiones', echo=FALSE}
+# Contribución total de las columnas a las dos dimensiones
+fviz_contrib(votantes.afc, choice = "col", axes = 1:2) +
+        ggtitle("Contribución de las columnas a las dos dimensiones")+
+        labs(x="Columnas",y="Porcentaje de contribución")
+```
+
+Aca podemos observar que el resto de partidos politicos son los que mas contribuyen a las dos primeras dimensiones, seguido por UP.
+
+### Calidad de la representación de las columnas: el Cos2
+
+
+```{r}
+head(columnas$cos2)
+
+```
+Como podemos observar, PSOE, Resto y PP están bastante asociadas a la primera dimensión, pero ninguno de los Partidos politicos están muy asociados a la segunda. La suma de los cos2 de cada punto de fila (o columna) a lo largo de las distintas dimensiones es 1. La calidad de la representación de un punto de fila (o columna) en un espacio de n dimensiones viene dada por la suma de los cos2 de ese punto de fila a lo largo de las n dimensiones; es evidente que, al elegir un total de 2 dimensiones en nuestro caso, la representación no es perfecta.
+
+Podemos visualizarlo con un grafico de correlaciones
+
+```{r cos2_col_corplot, fig.cap='Correlacion del cos2 de las columnas en las dimensiones', echo=FALSE}
+corrplot(columnas$cos2, is.corr=FALSE)
+```
+
+```{r cos2_ambasdim_barras, fig.cap='Grafico de barras del cos2 de las columnas en las dimensiones', echo=FALSE}
+# Cos2 de las columnas en las dos dimensiones
+fviz_cos2(votantes.afc, choice = "col", axes = 1:2)+
+        ggtitle("Cos2 de las dos dimensiones")+
+        labs(y="Cos2 - calidad de la representación")
+```
+
+Aqui podemos observar que la calidad de la representacion de cada punto columnas en las dimensiones no es perfecta. Solo UP y Resto llegan casi al maximo de la representacion pero el resto de partidos politicos no ya que al elegir solo dos dimensiones solo estamos explicando un 89% de la variabilidad total. Es evidente que en el resto de dimensiones se explican el resto de las variables que no estan explicadas en su totalidad en las primeras dos dimensiones, pero, entre andar agregando nuevas dimensiones y perder algo de informacion, es conveniente reducir la dimension.
+
+### Gráfico asimétrico
+
+En el caso de un gráfico asimétrico, los puntos de filas (o de columnas) se representan a partir de las coordenadas estándar, S, y los perfiles de la otra parte a partir de las coordenadas principales, P. Para un determinado eje, la relación entre S y P viene dada por
+
+P=(autovalor^1/2)×S
+
+siendo P la coordenada principal de la fila (o la columna) en el eje, y autovalor el correspondiente del eje.
+En determinadas circunstancias pueden efectuarse modificaciones sobre la representación a partir de la orden map de la función fviz_ca_biplot() de factoextra. Esas opciones son las siguientes:
+
+1. “rowprincipal” o “colprincipal”, para representar los gráficos 2D en los que bien las filas, bien las columnas están representadas en las coordenadas principales y la otra en coordenadas estándar; se denomina asimismo sistema de preservación de la métrica de filas o de la métrica de columnas, respectivamente; en la primera, las columnas se representan en el espacio de las filas, mientras que en la segunda son las filas quienes quedan representadas en el de las columnas;
+
+2. “symbiplot” escala tanto filas como columnas de forma a tener varianzas iguales a sus valores singulares (raíces de los autovalores), permitiendo un gráfico simétrico que no preserva las métricas de filas ni de columnas;
+
+3. “rowgab” o “colgab” es el mapa asimétrico propuesto por Gabriel y Odoroff, en el que “rowgab” señala que las filas vendrán dadas en coordenadas principales y las columnas en coordenadas estándar multiplicadas por su masa, mientras que “colgab” hace lo propio con las columnas;
+
+4. “rowgreen” o “colgreen” permite efectuar las representaciones bidimensionales de contribución que visualizan los puntos de mayor contribución, de acuerdo con Greenacre; “rowgreen” plantea las filas en coordenadas principales y las columnas en coordenadas estándar multiplicadas por las raíz cuadrada de su masa, mientras que “colgreen” hace lo propio con las columnas.
+
+El siguiente código permite efectuar la representación del gráfico asimétrico 2D estándar:
+
+
+```{r graph_asimet, fig.cap='Grafico asimetrico de las filas y columnas en las dimensiones', echo=FALSE}
+fviz_ca_biplot(votantes.afc, map ="rowprincipal", arrow = c(TRUE, TRUE))+ 
+        ggtitle("Análisis de correspondencias simples. Gráfico asimétrico.") 
+
+
+# arrow hace referencia a si el grafico debe mostrar puntos (primer argumento, FALSE por defecto, tanto para filas como para columnas) y/o flechas (segundo, TRUE por defecto, válido tanto para filas como para columnas).
+```
+
+Un ángulo agudo señala una alta asociación entre el punto de fila y el de columna; la distancia entre filas y columnas se interpreta mediante la proyección ortogonal de los puntos de fila en la flecha de la columna.
+
+Explicado esto, podemos decir que existe una alta correlacion entre jubilado y PP, personal domestico y PSOE, Trabajadores por cuenta ajena y UP y finalmente estudiantes y el Resto de partidos politicos.
+
+### Gráfico de contribuciones
+
+Esta representación permite conocer o, mejor, visualizar, la contribución de los puntos de fila y/o columna a los ejes, algo complicado en la solución ofrecida por el gráfico simétrico habitual. Una vez decidido si se desea estudiar la contribución de los puntos de fila o la de los de columna, se empleará la orden map="colgreen" para la de los primeros (contribución de los puntos de fila) y la orden map="colgreen"para la de los segundos (contribución de los puntos de columna). En el caso de que, por ejemplo, queramos estudiar la contribución de los puntos de fila en la definición de los ejes (orden map="colgreen"), las columnas vendrán dadas en coordenadas principales y las filas en coordenadas estándar, multiplicadas por la raíz cuadrada de la masa. Dado un punto de fila, la raíz de la nueva coordenada en el eje J es exactamente su contribución a la inercia del eje.
+
+```{r graph_contrib_filas, fig.cap='Grafico asimetrico de contribuciones de las filas en las dimensiones', echo=FALSE}
+fviz_ca_biplot(votantes.afc, map ="colgreen",
+               arrow = c(TRUE, FALSE))
+```
+
+
+
+La posición de los puntos de columna en el gráfico anterior no se ve modificada en relación con el gráfico tradicional; sin embargo, las distancias de los puntos de fila están ahora relacionadas con sus contribuciones al mapa factorial de dos dimensiones.
+Cuanto menor sea la distancia (angular) de un punto de fila respecto a algún eje, mayor será la contribución del mismo a la definición del eje. Asimismo, una posición intermedia entre dos ejes señala una contribución similar a ambos.
+
+En el caso que nos ocupa, claramente Jubilado  contribuyen fundamentalmente a la definición del eje 2, de forma negativa; por su parte, Parados lo hacen respecto del eje 1,  de forma positiva; Estudiantes, personal Domestico, Trabajadores por cuenta ajena, por último, contribuye de forma similar a ambos.

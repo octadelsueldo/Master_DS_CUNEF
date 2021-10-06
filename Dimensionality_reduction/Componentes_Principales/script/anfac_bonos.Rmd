@@ -1,0 +1,414 @@
+---
+title: "ANFAC en Bonos Americanos"
+author: "Hugo Cesar Octavio del Sueldo"
+date: "11/8/2020"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Estructura temporal (subyacente) de los tipos de interés.
+## Planteamiento
+
+El estudio de la estructura subyacente de los tipos de interés es reiterativa en la literatura financiera. Cabe citar, entre otros, el clásico artículo de Fama y Bliss de 1987 (The Information in Long-Maturity Forward Rates,The American Economic Review, Vol. 77, No. 4 ), el de Litterman y Scheinkman (Common factors affecting bond returns, Journal of fixed income, 1991) o, ya más recientes, el de Diebold, Piazzesi y Rudebusch (Modeling Bond Yields in Finance and Macroeconomics, American Economic Review 95.2, 2005), o el de Diebold y Li (Forecasting the term structure of government bond yields, Journal of Econometrics, 130.2, 2006). Puede consultarse también el paper de 2014 de Moody’s Analytics Principal Component Analysis for Yield Curve Modelling o el white paper de 2009 de Novosyolov y Satchkov, Global Term Structure Modeling Using Principal Component Analysis.
+
+El objetivo que perseguimos en el presente trabajo es, simplemente, efectuar una comprobación empírica mediante la aplicación del ACP a un conjunto de 978 observaciones de los rendimientos de 10 bonos norteamericanos a distintos plazos entre el 2 de enero de 1995 y el 30 de septiembre de 1998. No pretendemos nada más que verificar si, tal y como plantean los estudios teóricos, puede establecerse una estructura subyecente que sintetice y agrupe los distintos plazos en virtud de sus características comunes. Para ello, deberá trabajar con el archivo `ACPTIUSD.csv`, disponible en la plataforma, del que deberá utilizar las 949 primeras observaciones (denominadas observaciones activas) y las 9 primeras variables (las variables activas); uno de los objetivos será emplear las observaciones 950 a 978 (llamadas observaciones suplementarias) para predecir el valor del bono a 10 años (IRS.10Y, variable suplementaria). Aparte de cubrir este objetivo, queremos asimismo tener respuesta a las siguientes preguntas:
+
+1. ¿Tiene sentido llevar a cabo, en este caso, un análisis de componentes principales? Para justificarlo, deberá llevar a cabo las pruebas que estime oportunas, como, por ejemplo el análisis de la matriz de correlaciones, el del determinante de dicha matriz, la prueba de esfericidad de Bartlett, el KMO o el MSA;
+
+2. ¿Cuántos componentes permitirían explicar, adecuadamente, la estructura subycente de los tipos de interés aquí analizados? Justifique su respuesta empleando, por ejemplo, las pruebas de la varianza explicada o del gráfico de sedimentación;
+
+3. Finalmente, ¿tiene sentido llevar a cabo una rotación de las variables subyacentes? Para responder, lleva a cabo una rotación Varimax, por ejemplo.
+
+Por último, deberá elaborar las oportunas conclusiones.
+
+## Cargamos las librerias a utilizar y el fichero
+```{r cars}
+library(factoextra)
+library(FactoMineR)
+library(reshape2)
+library(ggplot2)
+library(PerformanceAnalytics)
+library(dplyr)
+library(corrplot)
+library(psych)
+library(GPArotation)
+library(pls)
+library(imputeTS)
+TIUSD=read.csv("./Datos/ACPTIUSD.csv", sep=";")
+```
+
+
+### ELEMENTOS:
+- Observaciones activas, las empleadas para efectuar el análisis;
+- Observaciones suplementarias, las que usaremos para predecir
+- Variables activas y suplementarias, idem que los individuos pero en variables.
+- Aquí, trataremos como observaciones activas las 949 primeras y suplementarias las 950 a 978;
+- Como variable suplementaria, a predecir, la IRS.10Y
+
+### Breve analisis exploratorio del dataset
+```{r}
+head(TIUSD)
+tail(TIUSD)
+```
+
+## Visualización
+
+```{r pressure, echo=FALSE}
+
+#library(reshape2)
+TIUSD2 = TIUSD[complete.cases(TIUSD), ] #crea el dataframe TIUSD2 
+TIUSD2$Fechas = as.Date(TIUSD2$X, format = "%d/%m/%Y") #nos creamos una columna que se llame fechas que este transformada segun la variable fecha de la primera columna
+TIUSD2=TIUSD2[,2:12] #nos quedamos con todos los bonos y la fecha transformada al final
+
+
+#library(ggplot2)
+data_long = melt(TIUSD2, id="Fechas")
+
+ggplot(data=data_long, aes(x= Fechas, y=value,  color=variable)) +
+  #geom_line()
+  geom_point(alpha = 0.3,  position = position_jitter()) +  #stat_smooth(method = "lm") +
+  labs(y = "Tipo", colour="Bono")
+```
+
+### Seguimos 
+```{r}
+TIUSD.act=TIUSD[1:949, 1:10] #seleccionamos nuestras observaciones activas
+head(TIUSD.act)
+str(TIUSD.act)
+
+Dates=as.Date(TIUSD.act$X, format = "%d/%m/%y") #creamos un vector de fechas en el dataframe TIUSD inicial
+TIUSD.act=TIUSD.act[,-1] #... para extraer la primera columna (de fechas) del objeto de trabajo
+head(Dates)
+str(Dates)
+summary(TIUSD.act)
+```
+
+
+### otra forma de hacer un summary completo
+```{r}
+
+TIUSD.act_stats = data.frame(
+  Min = apply(TIUSD.act, 2, min, na.rm=TRUE), # mín
+  Q1 = apply(TIUSD.act, 2, quantile, 1/4, na.rm=TRUE), # 1er cuartil
+  Med = apply(TIUSD.act, 2, median, na.rm=TRUE), # mediana
+  Mean = apply(TIUSD.act, 2, mean, na.rm=TRUE), # media
+  SD = apply(TIUSD.act, 2, sd), # Desviación típica
+  Q3 = apply(TIUSD.act, 2, quantile, 3/4, na.rm =TRUE), # 3er cuartil
+  Max = apply(TIUSD.act, 2, max, na.rm=TRUE) # Máx
+)
+TIUSD.act_stats=round(TIUSD.act_stats, 1) #mostramos estos estadisticos como dataframe
+TIUSD.act_stats
+```
+
+## Pasos del ANFAC
+Suelen identificarse las siguientes etapas en el proceso del ANFAC:
+
+1. Calcular la matriz de correlaciones entre todas las variables, a partir de la matriz de datos originales; examen de esta matriz.
+
+2. Extraccion de los factores necesarios para la representacion de los datos.
+
+3. Rotacion de los factores con objeto de facilitar su interpretacion; representacion grafica, si cabe.
+
+4. Determinacion de las puntuaciones factoriales de cada individuo, para su empleo en calculos posteriores.
+
+Mientras que los pasos 1 y 2 son obligatorios, pues sin ellos no puede hablarse de ANFAC, los 3 y 4 son optativos, pues su labor es meramente instrumental (aunque no por ello menos importante).
+
+### Paso 1: Analisis de la matriz de correlaciones
+
+```{r}
+cor.mat = round(cor(TIUSD.act),2) #problemas con los NA; dos opciones: use="complete.obs" que elimina la fila completa allí donde
+#existe un NA (opción radical pero recomendada) o bien use="pairwise.complete.obs", que los elimina los pares de datos afectados;
+# en principio, parecería más adecuada pero puede dar lugar a problemas de matrices no definidas-positivas.
+cor.mat #problema: los NAs
+cor.mat = round(cor(TIUSD.act, use="complete.obs"),2)
+cor.mat
+```
+
+si queremos conocer los nds, necesitamos cargar otro paquete, Hmisc
+
+```{r}
+require(Hmisc)
+cor.mat.nds= rcorr(as.matrix(TIUSD.act))
+cor.mat.nds #genera tres elementos en la salida: R, nº de observaciones, nds
+
+# nds: El nivel de significación del estadístico de contraste en la hipótesis de incorrelación (proxy de la independencia).
+#Se rechaza la H por nds = 0
+# se rechazara la hipotesis nula, lo que indicara presencia de asociacion entre las variables, estando en consecuencia plenamente justificado el empleo del ANFAC.
+```
+
+
+#### Visualizacion de la matriz de corr
+
+```{r coruno, warning=FALSE}
+# Podemos visualizarlo mediante un correlograma del paquete corrplot (que cargamos)
+
+#require(corrplot)
+corrplot::corrplot
+corrplot(cor.mat, type = "lower", order = "original", tl.col = "black", tl.cex = 0.7, tl.srt = 45) 
+
+#type=lower hace ref a cómo queremos visualizar la matriz, si por debajo,completa o por encima de la diagonal principal;
+# Method cambia la salida; probar "pie", "number" o "color"
+# las correlaciones positivas en azul, las negativas en rojo; tl.col, color etiquetas; tl.srt, ángulo etiquetas (string rotation)
+```
+
+Para visualizar la matriz con los clusters podemos utilizar el siguiente grafico
+
+```{r cordos, warning=FALSE}
+#require(corrplot)
+corrplot::corrplot
+corrplot(cor.mat, type="full", order="hclust", addrect = 3,
+         tl.col="black", tl.cex = 0.7, tl.srt = 45) 
+
+#permite visualizar clusters
+```
+
+Para 3 cluster podemos observar la correlacion existente en tres grupos
+- entre los bonos de 6 meses y 12 meses
+- los bonos de cortisimo plazo de 1 mes y 3 meses
+- los bonos de mediano y largo plazo entre 2 años y 5 años
+
+
+Otra forma de visualizar las correlaciones
+
+```{r}
+#...  y también podemos visualizar un chart de correlaciones con el paquete PerformanceAnalytics, que cargamos
+#install.packages("PerformanceAnalytics")
+#require(PerformanceAnalytics)
+
+chart.Correlation(TIUSD.act, histogram=TRUE, pch=19)
+# La distribución de cada variable en la diagonal;
+# Por debajo: diagramas de dispersión por pares con línea de ajuste
+# Por encima: el valor del coef de corr con el nds como estrellas:
+# p-valores(0, 0.001, 0.01, 0.05, 0.1, 1) <=> símbolos("***", "**", "*", ".", " ")
+
+
+# ... o a través de un mapa de calor
+col = colorRampPalette(c("red", "white", "blue"))(20) #definimos la paleta de colores;
+heatmap(x = cor.mat, col = col, symm = TRUE) # symm = T  si la matriz es simétrica
+```
+
+#### Aquí vamos a empezar con las pruebas estadísticas antes de empezar con el AF:
+
+```{r}
+# Se puede conocere la presencia de multicolinealidad al evaluar la
+# Determinante de la matriz de correlaciones de las variables ingresadas al
+# estudio:
+
+det(cor.mat)
+```
+
+Cuanto mas bajo sea, mayor asociacion tendran las variables entre si, de forma que sera adecuado llevar a cabo el ANFAC.
+
+En este caso observamos que es muy cercano a 0, lo que sugiere un alto nivel de colinealidad en el conjunto de variables involucradas en la matriz.
+
+#### Índice KMO y prueba de esfericidad de Bartlett para verificar la idoneidad del ACP - ANFAC
+
+En este paso nos tenemos que preguntar si existe la suficiente correlación entre las variable para efectuar el análisis factorial.
+
+- El KMO lo hace a partir de la matriz de correlaciones parciales.
+- Es una medida de adecuacion de la muestra; este ındice permite comparar las magnitudes de los coeficientes de correlacion observados con las magnitudes de los coeficientes de correlacion parcial.
+- Valores bajos del indice KMO desaconsejan el empleo del ANFAC (esto ocurrira cuando la suma de todos los coeficientes de determinacion parciales sea pequena en relacion a la suma de todos los coeficientes de determinacion), dado que las correlaciones entre pares de variables no pueden explicarse por el resto de variables.
+
+- Como referencia, Kaiser puso los siguientes valores en los resultados:
+
+0.00 a 0.49 inaceptable.
+0.50 a 0.59 miserable.
+0,60 a 0,69 mediocre.
+0.70 a 0.79 medio.
+0,80 a 0,89 meritorio.
+0.90 a 1.00 maravilloso.
+```{r}
+#library(psych)
+TIUSD.act.C=TIUSD.act[complete.cases(TIUSD.act),] #necesitamos la matriz de observaciones SIN NA's
+KMO(TIUSD.act.C)
+```
+
+El resultado es 0.87 lo que nos dice que podemos continuar con el análisis Factorial.
+
+Ahora aplicamos la prueba de Bartlett que se utiliza para probar la hipótesis nula que afirma que las variables no están correlacionadas en la población. 
+
+La prueba de esfericidad de Bartlett contrasta la hipótesis nula de que la matriz de correlaciones es una matriz identidad, en cuyo caso no existirían correlaciones significativas entre las variables y el modelo factorial no sería pertinente.
+
+```{r}
+bartlett.test(TIUSD.act.C)
+```
+
+El resultado del p valor nos permite rechazar la hipótesis nula. Por lo tanto, podemos continuar con nuestro ANFAC
+
+### Paso 2: Extraccion de los factores necesarios para la representacion de los datos.
+
+
+#### Escoger un método para extraer los factores.
+
+- Análisis de componentes principales. Método para la extracción de factores utilizada para formar combinaciones lineales no correlacionadas de las variables observadas. El primer componente tiene la varianza máxima. Las componentes sucesivas explican progresivamente proporciones menores de la varianza y no están correlacionadas unas con otras. El análisis principal de las componentes se utiliza para obtener la solución factorial inicial. No se puede utilizar cuando una matriz de correlaciones es singular.
+
+- Metodo del factor principales. Método para la extracción de factores que parte de la matriz de correlaciones original con los cuadrados de los coeficientes de correlación múltiple insertados en la diagonal principal como estimaciones iniciales de las comunalidades. Las cargas factoriales resultantes se utilizan para estimar de nuevo las comunalidades que reemplazan a las estimaciones previas de comunalidad en la diagonal. Las iteraciones continúan hasta que el cambio en las comunalidades, de una iteración a la siguiente, satisfaga el criterio de convergencia para la extracción. Alfa.
+
+```{r}
+# Analisis de componentes principales
+
+acp= PCA(TIUSD.act.C, graph=T)
+acp$eig # con FactoMineR. Con esta orden le estamos pidiendo los autovalores o eigen values o valores propios de la matriz de correlaciones.
+sum(acp$eig[,1]) #si hacemos la suma observamos que nos da 9 osea la totalidad de variables, la traza o suma de la diagnal principal. 
+```
+Podemos observar que con nuestros primeros dos componentes principales podemos explicar el 98.4% de la variabilidad total
+##### Graficamos los factores
+
+```{r}
+# Hacemos el screeplot de las componentes principales creadas con fviz_eig
+
+fviz_eig(acp, addlabels=TRUE, hjust = -0.3)+
+        labs(title="Scree plot / Grafico de sedimentacin", x="Dimensiones", y="% Varianza explicada")
+        theme_minimal()
+```
+
+```{r}
+# Relacion de las variables con los CCPP
+
+var=get_pca_var(acp) #factoextra
+var #creamos el objeto var que es el resultado del analisis de componentes principales
+var$coord #coordenadas de las observaciones (ind) o variables (var). Autovectores asociados a los autovalores
+
+```
+
+
+```{r}
+fviz_pca_var(acp, col.var="contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), repel=TRUE) +
+                              labs(title="Mapa de ejes principales")+
+        theme_minimal()
+```
+Cómo podemos observar, la Dim.1 está fuertemente explicada por los bonos por encima de 6 meses, mientras que la Dim.2 está explicada por los bonos a 1 y 3 meses.
+
+
+¿Cuántos componentes permitirían explicar, adecuadamente, la estructura subycente de los tipos de interés aquí analizados?
+
+Respondemos a esta pregunta con las tres pruebas siguientes:
+
+
+- Kaiser Criterion (Guttman, 1954): esta regla sugiere que se deben retener todos los factores que tengan un eigenvalue de 1.0 o mayor; con el razonamiento de que un factor no debe explicar menos que la varianza equivalente que hubiera explicado una sola de las variables incluidas en el análisis. La regla sin embargo no es estricta y debe analizarse en conjunto con otros criterios.
+
+- Análisis del Scree Plot (Cattell, 1966): este método complementa al anterior y se basa también el análisis de la magnitud de los eigenvalues pero a partir de la tendencia que se observa en el Scree Plot. Se procuran seleccionar un grupo reducido de factores que tengan eigenvalues significativamente superiores a los demás, para lo cual se identifica el punto de inflexión en la curva del scree plot (también referido como el codo por su semejanza con un brazo) a partir del cual la curva se transforma a una línea “plana” o relativamente recta. En el ejemplo que se presenta hay un claro punto de inflexión después de dos factores.
+
+- Análisis paralelo (Horn, 1965): Esta regla suele complementar las anteriores cuando el numero de variables iniciales y factores resultantes es elevado. El procedimiento es basado en el principio de que los factores a extraer deben dar cuenta de mas varianza que la que es esperada de manera aleatoria. El procedimiento reordena las observaciones de manera aleatoria entre cada variable y los eigenvalues son recalculados a partir de esta nueva base de datos aleatoriamente ordenada. Los factores con eigenvalues mayores a los valores aleatorios son retenidos para interpretación.
+
+```{r}
+acp$eig
+
+#Segun la regla del kaiser eligiriamos solo las dos primeras dimensiones al ser mayores a uno
+```
+
+```{r}
+scree(TIUSD.act.C)
+```
+
+```{r}
+fa.parallel(TIUSD.act.C,n.obs=200,fa="fa",fm="minres")
+```
+
+Los graficos de sedimentacion nos indican que el numero de factores debe ser 2.
+
+
+
+
+
+
+```{r}
+corrplot::corrplot
+corrplot(var$cos2, is.corr = FALSE) #correlacion de las variables respecto de los componentes principales
+```
+
+
+### Paso 3: Rotacion factorial
+
+La matriz de saturaciones factoriales, o matriz factorial, indica la relacio ́n entre los factores y las variables. Sin embargo, del resultado que finalmente obtenemos puede ser dif ́ıcil extraer una interpretacio ́n sencilla de los factores.
+La rotacio ́n factorial pretende seleccionar la solucio ́n ma ́s sencilla e interpretable, siempre siguiendo el criterio de parsimonia. En s ́ıntesis, consiste en hacer girar los ejes de coordenadas, que representan a los factores, hasta conseguir que se aproximen al ma ́ximo a las variables en que esta ́n saturados.
+
+El problema se puede plantear en la forma siguiente: efectuar una rotacion del modelo factorial A (el inicial) para obtener un nuevo modelo factorial B definiendo unos nuevos factores de interpretacio ́n ma ́s senci- lla.
+
+
+*Metodo Varimax*: Introducido por Kaiser en 1958, se basa en la determinacion de la simplicidad de un factor, medida por la varianza de los cuadrados de sus saturaciones en las variables observables. 
+*Método quartimax*: Método de rotación que minimiza el número de factores necesarios para explicar cada variable.
+*Rotación Promax*: Rotación oblicua que permite que los factores estén correlacionados. Es útil para conjuntos de datos grandes.
+```{r}
+#Rotaciones
+#library(GPArotation)
+rot<-c("none", "varimax", "quartimax","Promax")
+bi_mod<-function(tipo){
+biplot.psych(fa(TIUSD.act.C,nfactors = 2,fm="minres",rotate = tipo),main = paste("Biplot con rotación ",tipo),col=c(2,3,4),pch = c(21,18),group = bfi[,"gender"])  
+}
+sapply(rot,bi_mod)
+```
+
+
+### Interpretaciones y conclusiones
+
+```{r}
+modelo_varimax<-fa(cor.mat,nfactors = 2,rotate = "varimax",
+              fa="minres")
+fa.diagram(modelo_varimax)
+```
+
+Los factores pueden ser interprestados como:
+
+- MR1: Bonos (IRS.4Y, IRS.5Y, IRS.7Y, IRS.3Y, IRS.2Y, DEPO.12M) El primer factor contiene los bonos de mediano y largo plazo
+- MR2: Bonos (DEPO.1M, DEPO.3M, DEPO.6M) El segundo factor contiene los bonos de corto plazo desde 1 mes a 6 meses.
+
+
+```{r}
+print(modelo_varimax$loadings,cut=0) 
+```
+
+- Con la rotacion Varimax los dos factores se esta explicando el 98.1% de la variabilidad total. Por lo tanto, no conviene la rotacion ya que sin ella estabamos explicando el 98.4% de la variabilidad total.
+- El primer factor representa una proporcion mayor de la variabilidad total con el 66% y el segundo factor el 31%, sin embargo, como ya hemos comentado, no merece la pena realizar la rotacion ortogonal.
+
+```{r}
+modelo_varimax$uniquenesses #factores unicos
+
+#Es el porcentaje de varianza que no ha sido explicada por el Factor 
+```
+
+```{r}
+modelo_varimax$communalities #factores comunes o comunalidades
+
+#Porcentaje de la variabilidad de la variable explicada por ese Factor.
+```
+
+
+### Prediccion
+
+
+```{r}
+#library(pls)
+#library(imputeTS)
+TIUSD <- na_mean(TIUSD)
+TIUSD.act.train=TIUSD[1:949, 2:11] #seleccionamos las observaciones activas a partir de las cuales voy a predecir
+TIUSD.sup.test=TIUSD[950:978, 2:11] #seleccionamos las observaciones suplementarias
+
+modelo_train_pcr <- pcr(formula = IRS.10Y ~ ., data = TIUSD.act.train, scale. = TRUE, ncomp = 2)
+
+# Test-MSE
+predicciones_train <- predict(modelo_train_pcr, newdata = TIUSD.act.train, ncomp = 2)
+train_mse <- mean((predicciones_train - TIUSD.act.train$IRS.10Y)^2)
+train_mse
+```
+
+```{r}
+#Predecimos sobre la muestra de test
+
+modelo_test_pcr <- pcr(formula = IRS.10Y ~ ., data = TIUSD.sup.test, scale. = TRUE, ncomp = 2)
+
+# Test-MSE
+predicciones_test <- predict(modelo_test_pcr, newdata = TIUSD.sup.test, ncomp = 2)
+test_mse <- mean((predicciones_test - TIUSD.sup.test$IRS.10Y)^2)
+test_mse
+```
+
+Podemos observar que las predicciones sobre la muestra de test son muy buenas ya que el promedio de error es solo de 0.0003 incluso menor de los resultados expresados en la muestra train
+
